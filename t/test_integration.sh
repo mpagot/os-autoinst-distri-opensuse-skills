@@ -48,6 +48,7 @@ EXPECTED_SKILLS=(
     "vr-planner"
     "test-catalog"
     "openqa-log-analyzer"
+    "openqa-log-fetcher"
     "git-commit"
     "github-pr-create"
     "unit-test-wizard"

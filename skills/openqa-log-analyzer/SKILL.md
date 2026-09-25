@@ -20,9 +20,10 @@ openQA jobs produce several log files. This skill operates on two:
 | `serial_terminal.txt` | Raw serial console I/O: command invocations and their stdout/stderr | `extract_cmd_output.pl` only |
 
 **The user provides local log files.** This skill does not download, fetch,
-or retrieve logs from any openQA instance. When the user provides a
-directory, most scripts auto-append `autoinst-log.txt`. For
-`extract_cmd_output.pl`, the user must point to the `serial_terminal.txt`
+or retrieve logs from any openQA instance. (If logs are not yet downloaded,
+use the `openqa-log-fetcher` skill to fetch and cache them locally first.)
+When the user provides a directory, most scripts auto-append `autoinst-log.txt`.
+For `extract_cmd_output.pl`, the user must point to the `serial_terminal.txt`
 file explicitly.
 
 ## Tools & Scripts

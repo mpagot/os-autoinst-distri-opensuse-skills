@@ -18,6 +18,8 @@ For a quick visual overview, see the
 | "I have `autoinst-log.txt` from a failed job -- what happened?" | `openqa-log-analyzer` |
 | "Was this timeout caused by a slow worker host?" | `openqa-log-analyzer` |
 | "Which command in the log took the longest?" | `openqa-log-analyzer` |
+| "Fetch or download logs and artifacts from an openQA job" | `openqa-log-fetcher` |
+| "Check test variables and job settings for an openQA job" | `openqa-log-fetcher` |
 | "Does my edited `.pm` file compile?" | `local-lint-test` |
 | "What's the fastest check for my change?" | `local-lint-test` |
 | "How do I run a single unit test?" | `local-lint-test` |
@@ -89,8 +91,9 @@ the [vr-planner README](../skills/vr-planner/README.md).
 The `openqa-log-analyzer` skill helps developers make sense of the log files
 produced by os-autoinst during test execution. It operates exclusively on
 local log files that the developer has already downloaded -- the skill never
-fetches or retrieves logs from any openQA instance. Obtaining and providing
-the log files is the developer's responsibility.
+fetches or retrieves logs from any openQA instance. (To automatically fetch and
+cache logs from a remote openQA job URL or ID, use the `openqa-log-fetcher` skill.)
+Obtaining and providing the log files is the developer's responsibility.
 
 openQA jobs produce two key log files that this skill operates on:
 
@@ -311,6 +314,36 @@ actually calls `record_info`).
   confirm all 14 checks now pass. The `--json` flag produces structured output
   for integration with other tooling.
 
+## 8. Fetching openQA Logs and Artifacts -- `openqa-log-fetcher`
+
+The `openqa-log-fetcher` skill fetches, caches, and inspects logs, test artifacts,
+and job metadata directly from openQA instances (such as `openqa.suse.de` or
+`openqa.opensuse.org`).
+
+While `openqa-log-analyzer` requires logs to be available locally on disk,
+`openqa-log-fetcher` bridges that gap by connecting to the openQA instance via
+`openqa-log-local` (or `uvx openqa-log-local`), downloading target files on demand,
+and maintaining a local cache under `.cache/<host>/<job_id>/`.
+
+### Practical situations
+
+- **Downloading logs from a job URL or ID:** Provide an openQA job URL (e.g.,
+  `https://openqa.suse.de/tests/1234567`) or a job ID. The skill queries available
+  log files and downloads specific logs like `autoinst-log.txt` or `serial_terminal.txt`.
+
+- **Inspecting job settings and metadata without downloading heavy assets:**
+  The skill caches job metadata in `.cache/<host>/<job_id>.json`. You can query test
+  variables (e.g. `PUBLIC_CLOUD_PROVIDER`), architecture, and machine settings
+  instantly using `jq`.
+
+- **Filtering available test artifacts:** List published log files and artifacts
+  (e.g., searching for `supportconfig` outputs or custom test logs) before deciding
+  what to download.
+
+- **Seamless handoff to analysis:** Once logs are downloaded to the local cache,
+  the skill hands off the local file paths directly to `openqa-log-analyzer` for
+  failure triage, lag detection, and timing analysis.
+
 ## The Development Loop
 
 The skills and commands in this extension cover the full OSADO development
@@ -333,6 +366,9 @@ cycle:
       │
       ▼
   run openQA job
+      │
+      ▼
+  fetch logs ─────────────── openqa-log-fetcher
       │
       ▼
   analyse logs ───────────── openqa-log-analyzer
