@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# classify_changes.pl — Classify staged/changed files and output a testing plan.
+# classify_changes.pl — Classify the files committed on the branch and output a testing plan.
 # Run with --help for full usage information.
 
 use strict;
@@ -13,9 +13,7 @@ use JSON::PP;
 my $repo_dir;
 my $verbose = 0;
 my $json_output = 0;
-my $use_git_diff_staged = 0;
-my $use_git_diff = 0;
-my $git_commit;
+my $base;
 my $run_helpers = 0;
 my $help = 0;
 
@@ -23,14 +21,18 @@ GetOptions(
     'repo=s'          => \$repo_dir,
     'verbose'         => \$verbose,
     'json'            => \$json_output,
-    'git-diff-staged' => \$use_git_diff_staged,
-    'git-diff'        => \$use_git_diff,
-    'git-commit=s'    => \$git_commit,
+    'base=s'          => \$base,
     'helpers'         => \$run_helpers,
     'help|h'          => \$help,
 ) or do { print_usage(); exit 1 };
 
 print_usage() && exit 0 if $help;
+
+# An openQA VR can only fetch committed code (CASEDIR=fork#branch), so the
+# change set is always the branch's commits: no staged/unstaged/file-list modes.
+die "Positional file arguments are not supported: the plan covers the commits on\n"
+    . "the current branch (BASE...HEAD). Use --base REF to choose the range.\n"
+    if @ARGV;
 
 $repo_dir //= '.';
 $repo_dir = abs_path($repo_dir);
@@ -38,23 +40,26 @@ $repo_dir = abs_path($repo_dir);
 die "Not a valid OSADO repo: $repo_dir (missing lib/ or tests/)\n"
     unless -d "$repo_dir/lib" && -d "$repo_dir/tests";
 
+# The ref is passed to git as an argument: a leading '-' would be parsed as an option
+die "Invalid --base value: '$base'\n"
+    if defined $base && $base =~ /^-/;
+
+$base //= find_default_base($repo_dir);
+die "Cannot determine the upstream base branch. Pass it with --base REF\n"
+    . "  (e.g. --base upstream/master after 'git fetch upstream').\n"
+    unless $base;
+die "--base '$base' is not a valid commit in $repo_dir\n"
+    unless git_ref_exists($repo_dir, $base);
+log_verbose("Base: $base");
+
 ################################################################
 # Get file list
-my @changed_files;
+my @changed_files = get_git_files($base);
 
-if (@ARGV) {
-    # Files passed as arguments
-    @changed_files = @ARGV;
-} elsif ($git_commit) {
-    @changed_files = get_git_files('commit', $git_commit);
-} elsif ($use_git_diff) {
-    @changed_files = get_git_files('diff');
-} else {
-    # Default: git staged (--git-diff-staged or implicit default)
-    @changed_files = get_git_files('staged');
-}
+my @warnings = get_precondition_warnings($repo_dir);
 
-die "No changed files found. Stage some changes, specify a commit, or pass file paths.\n"
+die "No committed changes found in $base...HEAD. Commit your changes first:\n"
+    . "  an openQA VR can only run code that is committed and pushed.\n"
     unless @changed_files;
 
 # Normalize paths
@@ -102,13 +107,15 @@ for my $file (@changed_files) {
 
 ################################################################
 # Output
-my $branch   = get_git_branch($repo_dir, $git_commit);
+my $branch   = get_git_branch($repo_dir);
 my $fork_url = get_git_fork_url($repo_dir);
 log_verbose("Resolved branch: $branch");
 log_verbose("Resolved fork URL: " . ($fork_url // '(none)'));
 
 my $report = build_report_data(\%categories, \@changed_files, $repo_dir,
     $branch, $fork_url);
+$report->{base}     = $base;
+$report->{warnings} = \@warnings;
 
 if ($json_output) {
     print_json($report);
@@ -126,19 +133,94 @@ if ($run_helpers) {
 exit 0;
 
 
-=head2 get_git_files
+sub run_cmd {
+    my (@cmd) = @_;
+    # A failed exec leaves $? untouched, so die rather than report success
+    open(my $fh, "-|", @cmd) or die "Cannot run '$cmd[0]': $!\n";
+    my @lines = <$fh>;
+    close $fh;
+    chomp @lines;
+    return @lines;
+}
 
-Retrieve changed file paths from git based on the requested input mode.
 
-Falls back to C<git diff HEAD> when staged mode produces no results,
-so the script still works for developers who forgot to stage.
+=head2 git_ref_exists
 
-  @files = get_git_files($mode, $commit_hash);
+Check whether a git ref resolves to a commit, without printing git errors.
+
+  $ok = git_ref_exists($repo_dir, $ref);
 
 Arguments:
 
-  $mode        - One of 'staged', 'diff', or 'commit'
-  $commit_hash - Git commit SHA (required when $mode is 'commit', ignored otherwise)
+  $repo_dir - Absolute path to the OSADO repository
+  $ref      - Ref name or commit hash (e.g. 'upstream/master')
+
+Returns: 1 if the ref resolves to a commit, 0 otherwise.
+
+=cut
+
+sub git_ref_exists {
+    my ($repo_dir, $ref) = @_;
+    # --quiet keeps a missing ref silent (exit 1, no stderr)
+    my @out = run_cmd('git', '-C', $repo_dir, 'rev-parse', '--verify', '--quiet', "$ref^{commit}");
+    return ($? == 0 && @out) ? 1 : 0;
+}
+
+=head2 find_default_base
+
+Find the master branch that the current branch was forked from.
+
+Candidates are the C<master> branch of the remote pointing to the upstream
+C<os-autoinst/os-autoinst-distri-opensuse> repository, C<upstream/master>,
+C<origin/master> and the local C<master>. Any of them may be stale (e.g. an
+upstream remote that is never fetched while the fork's master is kept in
+sync), so the closest one wins: the candidate with the fewest commits in
+C<candidate..HEAD>.
+
+  $base = find_default_base($repo_dir);
+
+Arguments:
+
+  $repo_dir - Absolute path to the OSADO repository
+
+Returns: Ref name (e.g. 'origin/master'), or undef if none exists locally.
+
+=cut
+
+sub find_default_base {
+    my ($repo_dir) = @_;
+    my @candidates;
+    for my $remote (run_cmd('git', '-C', $repo_dir, 'remote')) {
+        my @url = run_cmd('git', '-C', $repo_dir, 'remote', 'get-url', $remote);
+        push @candidates, "$remote/master"
+            if @url && $url[0] =~ m{[:/]os-autoinst/os-autoinst-distri-opensuse(?:\.git)?$};
+    }
+    push @candidates, 'upstream/master', 'origin/master', 'master';
+
+    my ($best, $best_count, %seen);
+    for my $ref (grep { !$seen{$_}++ } @candidates) {
+        next unless git_ref_exists($repo_dir, $ref);
+        my @count = run_cmd('git', '-C', $repo_dir, 'rev-list', '--count', "$ref..HEAD");
+        next unless @count && $count[0] =~ /^\d+$/;
+        log_verbose("Base candidate $ref: $count[0] commit(s) to HEAD");
+        ($best, $best_count) = ($ref, $count[0]) if !defined $best_count || $count[0] < $best_count;
+    }
+    return $best;
+}
+
+=head2 get_git_files
+
+Retrieve the files changed by the commits on the current branch.
+
+Uses C<git diff BASE...HEAD>, which diffs HEAD against the merge-base of
+BASE and HEAD: upstream commits made after branching are not included,
+and neither are uncommitted changes.
+
+  @files = get_git_files($base);
+
+Arguments:
+
+  $base - Base ref (e.g. 'upstream/master')
 
 Returns: List of repo-relative file paths (Added/Copied/Modified/Renamed only).
 
@@ -147,76 +229,91 @@ Dies on git command failure.
 =cut
 
 sub get_git_files {
-    my ($mode, $commit_hash) = @_;
-    my $cmd;
-    if ($mode eq 'commit') {
-        die "--git-commit requires a commit hash\n" unless $commit_hash;
-        $cmd = "git -C '$repo_dir' diff-tree --no-commit-id -r --name-only --diff-filter=ACMR '$commit_hash'";
-    } elsif ($mode eq 'staged') {
-        $cmd = "git -C '$repo_dir' diff --cached --name-only --diff-filter=ACMR";
-    } else {
-        $cmd = "git -C '$repo_dir' diff --name-only --diff-filter=ACMR";
-    }
+    my ($base) = @_;
+    my @cmd = ('git', '-C', $repo_dir, qw(diff --name-only --diff-filter=ACMR), "$base...HEAD");
 
-    log_verbose("Running: $cmd");
-    my @files = `$cmd`;
-    # $? holds the 16-bit wait status; >> 8 extracts the exit code (bits 8-15)
+    log_verbose("Running: " . join(' ', @cmd));
+    my @files = run_cmd(@cmd);
     my $rc = $? >> 8;
-    chomp @files;
 
     if ($rc != 0) {
-        die "git command failed (exit $rc): $cmd\n";
-    }
-
-    # If no staged files, try all uncommitted changes
-    if (!@files && $mode eq 'staged') {
-        log_verbose("No staged files found, trying all uncommitted changes");
-        $cmd = "git -C '$repo_dir' diff HEAD --name-only --diff-filter=ACMR";
-        @files = `$cmd`;
-        chomp @files;
+        die "git command failed (exit $rc): " . join(' ', @cmd) . "\n";
     }
 
     return @files;
+}
+
+=head2 get_precondition_warnings
+
+Check that the planned change set is what an openQA VR will actually run.
+
+A VR fetches CASEDIR=fork#branch from GitHub, so it only sees commits that
+are pushed. Reports (without failing) uncommitted changes to tracked files,
+a detached HEAD, a branch that was never pushed, and unpushed commits.
+
+  @warnings = get_precondition_warnings($repo_dir);
+
+Arguments:
+
+  $repo_dir - Absolute path to the OSADO repository
+
+Returns: List of warning strings (empty when everything is pushed).
+
+=cut
+
+sub get_precondition_warnings {
+    my ($repo_dir) = @_;
+    my @warnings;
+
+    my @dirty = run_cmd('git', '-C', $repo_dir, 'status', '--porcelain', '--untracked-files=no');
+    if (@dirty) {
+        push @warnings, scalar(@dirty) . " uncommitted change(s) to tracked files are NOT"
+            . " part of this plan and will not be in the VR until committed and pushed.";
+    }
+
+    my @branch_out = run_cmd('git', '-C', $repo_dir, 'branch', '--show-current');
+    my $branch = $branch_out[0] // '';
+    if (!$branch) {
+        push @warnings, "Detached HEAD: a VR needs a pushed branch for CASEDIR=fork#branch.";
+        return @warnings;
+    }
+
+    # CASEDIR points to the origin fork (see get_git_fork_url), so compare
+    # against origin/<branch> as last fetched rather than the tracking branch.
+    my $pushed = "origin/$branch";
+    if (!git_ref_exists($repo_dir, $pushed)) {
+        push @warnings, "Branch '$branch' is not pushed to origin: run"
+            . " 'git push -u origin $branch' before cloning a VR job.";
+        return @warnings;
+    }
+
+    my @ahead = run_cmd('git', '-C', $repo_dir, 'rev-list', '--count', "$pushed..HEAD");
+    if (($ahead[0] // 0) > 0) {
+        push @warnings, "$ahead[0] commit(s) on '$branch' are not pushed to '$pushed':"
+            . " the VR will run the pushed code, not your local HEAD.";
+    }
+
+    return @warnings;
 }
 
 =head2 get_git_branch
 
 Resolve the current branch name for use in CASEDIR construction.
 
-When a commit hash is provided, reverse-maps it to a branch name via
-C<git branch --contains>. Falls back to the abbreviated commit hash
-if no branch contains it.
-
-  $branch = get_git_branch($repo_dir, $commit_hash);
+  $branch = get_git_branch($repo_dir);
 
 Arguments:
 
-  $repo_dir    - Absolute path to the OSADO repository
-  $commit_hash - Optional git commit SHA to resolve
+  $repo_dir - Absolute path to the OSADO repository
 
-Returns: Branch name string (e.g. 'my-feature'), abbreviated SHA, or 'HEAD'.
+Returns: Branch name string (e.g. 'my-feature'), or 'HEAD' when detached.
 
 =cut
 
 sub get_git_branch {
-    my ($repo_dir, $commit_hash) = @_;
-    if ($commit_hash) {
-        # Find a branch that contains this commit (prefer non-HEAD, non-detached)
-        my @branches = `git -C '$repo_dir' branch --contains '$commit_hash' 2>/dev/null`;
-        chomp @branches;
-        for my $b (@branches) {
-            $b =~ s/^\*?\s+//;
-            next if $b =~ /HEAD detached/;
-            return $b;
-        }
-        # Fallback: abbreviated commit hash
-        my $short = `git -C '$repo_dir' rev-parse --short '$commit_hash' 2>/dev/null`;
-        chomp $short;
-        return $short || $commit_hash;
-    }
-    # No commit specified: use current branch
-    my $branch = `git -C '$repo_dir' branch --show-current 2>/dev/null`;
-    chomp $branch;
+    my ($repo_dir) = @_;
+    my @branch_out = run_cmd('git', '-C', $repo_dir, 'branch', '--show-current');
+    my $branch = $branch_out[0] // '';
     return $branch || 'HEAD';
 }
 
@@ -243,17 +340,16 @@ sub get_git_fork_url {
     my ($repo_dir) = @_;
     # Try origin first, then any remote
     for my $remote ('origin', '') {
-        my $cmd = $remote
-            ? "git -C '$repo_dir' remote get-url '$remote' 2>/dev/null"
-            : "git -C '$repo_dir' remote 2>/dev/null";
-        if (!$remote) {
-            my @remotes = `$cmd`;
-            chomp @remotes;
+        my $url;
+        if ($remote) {
+            my @url_out = run_cmd('git', '-C', $repo_dir, 'remote', 'get-url', $remote);
+            $url = $url_out[0];
+        } else {
+            my @remotes = run_cmd('git', '-C', $repo_dir, 'remote');
             next unless @remotes;
-            $cmd = "git -C '$repo_dir' remote get-url '$remotes[0]' 2>/dev/null";
+            my @url_out = run_cmd('git', '-C', $repo_dir, 'remote', 'get-url', $remotes[0]);
+            $url = $url_out[0];
         }
-        my $url = `$cmd`;
-        chomp $url;
         next unless $url;
         # Normalize: git@github.com:USER/REPO.git or https://github.com/USER/REPO.git
         if ($url =~ m{github\.com[:/](.+?)(?:\.git)?$}) {
@@ -296,7 +392,7 @@ Mapping:
 
   tests/    -> find_test_schedule.pl
   lib/      -> find_unit_test.pl + find_affected_tests.pl
-               (+ find_test_schedule.pl for function-confirmed targets when --git-commit)
+               (+ find_test_schedule.pl for function-confirmed targets)
   data/     -> find_data_consumers.pl
   schedule/ -> prints ready-to-run find_openqa_job.pl commands (does NOT execute;
                network access requires user confirmation)
@@ -324,12 +420,12 @@ sub run_helpers {
     if (@{$categories->{tests}{files}}) {
         my $script = find_script('find_test_schedule.pl');
         if ($script) {
-            my $files = join(' ', map { "'$_'" } @{$categories->{tests}{files}});
-            my $v = $verbose ? '--verbose' : '';
+            my @cmd = ('perl', $script, '--repo', $repo_dir);
+            push @cmd, '--verbose' if $verbose;
+            push @cmd, @{$categories->{tests}{files}};
+            log_verbose("Running: " . join(' ', @cmd));
             print "--- find_test_schedule.pl ---\n\n";
-            my $cmd = "perl '$script' --repo '$repo_dir' $v $files";
-            log_verbose("Running: $cmd");
-            system($cmd);
+            system(@cmd);
             print "\n";
         } else {
             print "  [find_test_schedule.pl not found — skipping]\n\n";
@@ -340,47 +436,57 @@ sub run_helpers {
     if (@{$categories->{lib}{files}}) {
         my $ut_script = find_script('find_unit_test.pl');
         my $at_script = find_script('find_affected_tests.pl');
-        my $files = join(' ', map { "'$_'" } @{$categories->{lib}{files}});
-        my $v = $verbose ? '--verbose' : '';
+        my @files = @{$categories->{lib}{files}};
 
         if ($ut_script) {
+            my @cmd = ('perl', $ut_script, '--repo', $repo_dir);
+            push @cmd, '--verbose' if $verbose;
+            push @cmd, @files;
+            log_verbose("Running: " . join(' ', @cmd));
             print "--- find_unit_test.pl ---\n\n";
-            my $cmd = "perl '$ut_script' --repo '$repo_dir' $v $files";
-            log_verbose("Running: $cmd");
-            system($cmd);
+            system(@cmd);
             print "\n";
         } else {
             print "  [find_unit_test.pl not found — skipping]\n\n";
         }
 
         if ($at_script) {
+            my @cmd = ('perl', $at_script, '--repo', $repo_dir);
+            push @cmd, '--verbose' if $verbose;
+            push @cmd, '--base', $base;
+            push @cmd, @files;
+            log_verbose("Running: " . join(' ', @cmd));
             print "--- find_affected_tests.pl ---\n\n";
-            my $gc = $git_commit ? "--git-commit '$git_commit'" : '';
-            my $cmd = "perl '$at_script' --repo '$repo_dir' $v $gc $files";
-            log_verbose("Running: $cmd");
-            system($cmd);
+            system(@cmd);
             print "\n";
 
-            # When --git-commit is provided, also resolve the function-confirmed
-            # test files to YAML schedules automatically.  This closes the
-            # full pipeline for lib/ changes so gemini doesn't need to pick
-            # between the function-level and module-level lists manually.
-            if ($git_commit) {
+            # Also resolve the function-confirmed test files to YAML schedules
+            # automatically.  This closes the full pipeline for lib/ changes so
+            # the agent doesn't need to pick between the function-level and
+            # module-level lists manually.
+            {
                 my $ts_script = find_script('find_test_schedule.pl');
                 if ($ts_script) {
                     # Run find_affected_tests.pl in JSON mode to extract recommended_tests
-                    my $json_cmd = "perl '$at_script' --repo '$repo_dir' $gc --json $files";
-                    log_verbose("Running (JSON): $json_cmd");
-                    my $raw = qx($json_cmd 2>/dev/null);
+                    my @json_cmd = ('perl', $at_script, '--repo', $repo_dir, '--json');
+                    push @json_cmd, '--base', $base;
+                    push @json_cmd, @files;
+                    log_verbose("Running (JSON): " . join(' ', @json_cmd));
+                    my $raw;
+                    if (open(my $fh, "-|", @json_cmd)) {
+                        $raw = do { local $/; <$fh> };
+                        close $fh;
+                    }
                     if ($raw) {
                         my $data = eval { JSON::PP->new->decode($raw) };
                         my @rec = grep { /^tests\// } @{$data->{recommended_tests} // []};
                         if (!$@ && @rec) {
-                            my $rec_files = join(' ', map { "'$_'" } @rec);
+                            my @ts_cmd = ('perl', $ts_script, '--repo', $repo_dir);
+                            push @ts_cmd, '--verbose' if $verbose;
+                            push @ts_cmd, @rec;
                             print "--- find_test_schedule.pl (function-confirmed VR targets) ---\n\n";
-                            my $ts_cmd = "perl '$ts_script' --repo '$repo_dir' $v $rec_files";
-                            log_verbose("Running: $ts_cmd");
-                            system($ts_cmd);
+                            log_verbose("Running: " . join(' ', @ts_cmd));
+                            system(@ts_cmd);
                             print "\n";
                         }
                     }
@@ -395,12 +501,12 @@ sub run_helpers {
     if (@{$categories->{data}{files}}) {
         my $script = find_script('find_data_consumers.pl');
         if ($script) {
-            my $files = join(' ', map { "'$_'" } @{$categories->{data}{files}});
-            my $v = $verbose ? '--verbose' : '';
+            my @cmd = ('perl', $script, '--repo', $repo_dir);
+            push @cmd, '--verbose' if $verbose;
+            push @cmd, @{$categories->{data}{files}};
+            log_verbose("Running: " . join(' ', @cmd));
             print "--- find_data_consumers.pl ---\n\n";
-            my $cmd = "perl '$script' --repo '$repo_dir' $v $files";
-            log_verbose("Running: $cmd");
-            system($cmd);
+            system(@cmd);
             print "\n";
         } else {
             print "  [find_data_consumers.pl not found — skipping]\n\n";
@@ -496,8 +602,15 @@ sub print_text {
     print "OSADO Change Classification & Testing Plan\n";
     print "=" x 60, "\n\n";
 
+    print "Change set: commits in $report->{base}...HEAD (branch $report->{branch})\n";
     print "Total files changed: $report->{total_files}\n";
     print "Files needing openQA VR: $report->{total_vr_needed}\n\n";
+
+    if (@{$report->{warnings}}) {
+        print "WARNINGS:\n";
+        print "  ! $_\n" for @{$report->{warnings}};
+        print "\n";
+    }
 
     # Print each non-empty category
     my @order = qw(tests lib t data schedule no_vr);
@@ -554,7 +667,7 @@ sub print_text {
         print "   openqa-clone-job --skip-chained-deps --within-instance \\\n";
         print "     http://HOST/tests/JOB_ID \\\n";
         print "     CASEDIR=$casedir \\\n";
-        print "     BUILD=user_VR _GROUP=0\n\n";
+        print "     BUILD=user_VR TEST=user_VR _GROUP=0\n\n";
     }
 
     if ($run_helpers) {
@@ -597,7 +710,7 @@ sub get_guidance {
         push @lines, "Find unit tests: perl find_unit_test.pl --repo $repo_dir "
             . join(' ', @sorted);
         push @lines, "Find affected tests: perl find_affected_tests.pl --repo $repo_dir "
-            . join(' ', @sorted);
+            . "--base $base " . join(' ', @sorted);
     } elsif ($cat_name eq 't') {
         push @lines, "Action: Run these test files locally.";
         for my $f (@sorted) {
@@ -626,8 +739,8 @@ sub get_guidance {
 
 Render the classification report as pretty-printed JSON for machine consumption.
 
-Produces a structure with keys: total_files, total_vr_needed, branch, fork_url,
-and categories (each with label, vr_needed, files, guidance).
+Produces a structure with keys: total_files, total_vr_needed, branch, base,
+fork_url, warnings, and categories (each with label, vr_needed, files, guidance).
 
   print_json($report);
 
@@ -647,7 +760,9 @@ sub print_json {
         total_files     => $report->{total_files},
         total_vr_needed => $report->{total_vr_needed},
         branch          => $report->{branch},
+        base            => $report->{base},
         fork_url        => $report->{fork_url},
+        warnings        => $report->{warnings},
         categories      => {},
     );
 
@@ -688,15 +803,16 @@ sub log_verbose {
 
 sub print_usage {
     print <<'EOF';
-classify_changes.pl — Classify changed files and output an OSADO testing plan.
+classify_changes.pl — Classify committed changes and output an OSADO testing plan.
 
 USAGE
-    perl classify_changes.pl [OPTIONS] [file ...]
+    perl classify_changes.pl [OPTIONS]
 
 DESCRIPTION
-    Given a set of changed files (from git or as arguments), categorizes each
-    file by its location in the os-autoinst-distri-opensuse repository and
-    outputs the appropriate testing strategy:
+    Takes the files changed by the commits on the current branch
+    (git diff BASE...HEAD), categorizes each file by its location in the
+    os-autoinst-distri-opensuse repository and outputs the appropriate
+    testing strategy:
 
         tests/     → Clone an openQA job (VR needed)
         lib/       → Run unit tests + clone an openQA job (VR needed)
@@ -705,21 +821,20 @@ DESCRIPTION
         schedule/  → Clone a job that uses the schedule (VR needed)
         other      → No openQA verification needed
 
-INPUT MODES
-    By default (no flags, no file arguments), reads git staged files.
+CHANGE SET
+    An openQA VR fetches the code from CASEDIR=fork#branch, so it can only
+    run what is committed and pushed. The plan therefore covers only the
+    commits on the current branch; staged, unstaged and untracked changes
+    are ignored. The report warns (without failing) about uncommitted
+    changes to tracked files, a detached HEAD, a branch not pushed to
+    origin, and unpushed commits.
 
-    --git-diff-staged
-        Read from git staged files (same as the default behavior).
-
-    --git-diff
-        Read from unstaged working tree changes (git diff).
-
-    --git-commit HASH
-        Read files changed in a specific git commit.
-
-    file ...
-        When file paths are given as positional arguments, they are used
-        directly instead of querying git.
+    --base REF
+        Ref the branch was forked from. Defaults to the closest of: the
+        master branch of the remote pointing to
+        os-autoinst/os-autoinst-distri-opensuse, upstream/master,
+        origin/master and master (the one with the fewest commits to HEAD,
+        so a stale, never-fetched remote is not picked).
 
 OPTIONS
     --repo DIR
@@ -745,17 +860,11 @@ OPTIONS
         Show this help message and exit.
 
 EXAMPLES
-    # Classify staged changes (default)
+    # Classify the commits on the current branch (default base)
     perl classify_changes.pl --repo /path/to/osado
 
-    # Classify unstaged working tree changes
-    perl classify_changes.pl --repo /path/to/osado --git-diff
-
-    # Classify a specific commit
-    perl classify_changes.pl --repo /path/to/osado --git-commit abc1234
-
-    # Classify explicit files
-    perl classify_changes.pl --repo /path/to/osado lib/utils.pm tests/console/test.pm
+    # Classify against an explicit base
+    perl classify_changes.pl --repo /path/to/osado --base upstream/master
 
     # Full analysis with helper scripts
     perl classify_changes.pl --repo /path/to/osado --helpers --verbose

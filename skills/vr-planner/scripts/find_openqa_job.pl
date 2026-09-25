@@ -20,6 +20,7 @@ my $verbose = 0;
 my $json_output = 0;
 my $timing = 0;
 my $help = 0;
+my @modules;    # programmatic-loader fallback: query by openQA module name
 
 # Timing instrumentation: each entry is { stage, query, elapsed_s }
 my @api_timings;
@@ -38,6 +39,7 @@ GetOptions(
     'verbose'   => \$verbose,
     'json'      => \$json_output,
     'timing'    => \$timing,
+    'modules=s' => \@modules,
     'help|h'    => \$help,
 ) or do { print_usage(); exit 1 };
 
@@ -66,7 +68,7 @@ die "Not a valid OSADO repo: $repo_dir (missing tests/)\n"
 # --- Validate inputs ---
 my @input_files = @ARGV;
 die "No input files. Pass test module paths (tests/*.pm) or schedule paths (schedule/*.yml).\n"
-    unless @input_files;
+    unless @input_files || @modules;
 
 # Normalize paths (strip repo prefix, leading ./)
 @input_files = map {
@@ -114,6 +116,23 @@ if (!$casedir || !$build) {
 
 log_verbose("CASEDIR: " . ($casedir // '<not detected — use --casedir>'));
 log_verbose("BUILD: $build");
+
+
+################################################################
+# Programmatic loader fallback (--modules): query by module name
+################################################################
+# Some tests (publiccloud, parts of kernel/LTP) are loaded at runtime via
+# lib/main_*.pm and have no static YAML schedule, so the schedule-based
+# pipeline below cannot resolve them. As a fallback, query openQA directly by
+# module name to locate a recent passing job to clone. job_modules.name is not
+# indexed: the query is fast for commonly-run modules but scans the whole table
+# (minutes) for rare or unknown names, so it is gated behind an explicit
+# --modules request. All traffic goes through run_openqa_api to reuse
+# the https/insecure/http fallback and shell-safe execution.
+if (@modules) {
+    run_modules_query(\@modules);
+    exit 0;
+}
 
 
 ################################################################
@@ -176,7 +195,7 @@ log_verbose("\n=== Stage 1: YAML schedule → job IDs (API) ===");
 
 for my $se (@schedule_entries) {
     my $path = $se->{schedule};
-    my $raw = run_openqa_api("job_settings/jobs key=YAML_SCHEDULE value='$path'", 'stage1_schedule_to_jobs');
+    my $raw = run_openqa_api(["job_settings/jobs", "key=YAML_SCHEDULE", "value=$path"], 'stage1_schedule_to_jobs');
 
     if (!$raw) {
         $se->{job_ids} = [];
@@ -220,7 +239,7 @@ for my $se (@schedule_entries) {
     my %tests_seen;    # TEST → { group_id, flavor, version, distri, arch, sample_id }
 
     for my $id (@sample_ids) {
-        my $raw = run_openqa_api("jobs/$id", 'stage2_job_metadata');
+        my $raw = run_openqa_api(["jobs/$id"], 'stage2_job_metadata');
         next unless $raw;
 
         my $data = eval { JSON::PP->new->decode($raw) };
@@ -356,10 +375,10 @@ for my $key (sort keys %unique_tests) {
 
     # Build query: always filter by TEST, state, result, latest
     # Add groupid if available (excludes VR clones with _GROUP=0)
-    my $query = "jobs test='$test' state=done result=passed latest=1 limit=5";
-    $query .= " groupid=$gid" if defined $gid;
+    my @query_args = ('jobs', "test=$test", 'state=done', 'result=passed', 'latest=1', 'limit=5');
+    push @query_args, "groupid=$gid" if defined $gid;
 
-    my $raw = run_openqa_api($query, 'stage3_passing_jobs');
+    my $raw = run_openqa_api(\@query_args, 'stage3_passing_jobs');
     next unless $raw;
 
     my $data = eval { JSON::PP->new->decode($raw) };
@@ -444,11 +463,11 @@ exit 0;
 ################################################################
 
 sub run_openqa_api {
-    my ($query, $stage) = @_;
+    my ($args_ref, $stage) = @_;
 
     # Always try first without any insecure override — trust the user's
     # system certificate store.
-    my $raw = _do_openqa_api_call($host, $query, $stage, 0);
+    my $raw = _do_openqa_api_call($host, $args_ref, $stage, 0);
     return $raw if defined $raw;
 
     # Nothing more to try for plain http hosts.
@@ -458,7 +477,7 @@ sub run_openqa_api {
     if (!$https_insecure) {
         warn "Warning: API call failed for '$host';"
             . " retrying with MOJO_INSECURE=1 (untrusted certificate?)\n";
-        $raw = _do_openqa_api_call($host, $query, $stage, 1);
+        $raw = _do_openqa_api_call($host, $args_ref, $stage, 1);
         if (defined $raw) {
             $https_insecure = 1;    # remember for all subsequent calls
             return $raw;
@@ -470,7 +489,7 @@ sub run_openqa_api {
     $http_host =~ s{^https://}{http://};
     warn "Warning: https failed for '$host'; retrying with '$http_host'\n"
         . "  Internal openQA instances do not always serve HTTPS.\n";
-    $raw = _do_openqa_api_call($http_host, $query, $stage, 0);
+    $raw = _do_openqa_api_call($http_host, $args_ref, $stage, 0);
     if (defined $raw) {
         $host           = $http_host;    # permanently switch for subsequent calls
         $https_insecure = 0;
@@ -482,29 +501,220 @@ sub run_openqa_api {
 # $insecure=1 sets MOJO_INSECURE=1 in the environment.
 # Returns the raw response string, or undef on failure.
 sub _do_openqa_api_call {
-    my ($try_host, $query, $stage, $insecure) = @_;
-    my $env = $insecure ? 'MOJO_INSECURE=1 ' : '';
-    my $cmd = "${env}openqa-cli api --host '$try_host' $query 2>/dev/null";
-    log_verbose("API: $cmd");
+    my ($try_host, $args_ref, $stage, $insecure) = @_;
+
+    # Safely set MOJO_INSECURE using dynamic/local scope in Perl %ENV
+    local $ENV{MOJO_INSECURE} = 1 if $insecure;
+    my @cmd = ('openqa-cli', 'api', '--host', $try_host, @$args_ref);
+    # Human-readable command for the verbose log only (quoting is cosmetic, never executed)
+    my $cmd_str = join(' ', map { $_ =~ /[\s']/ ? "'$_'" : $_ } @cmd);
+    log_verbose("API: $cmd_str");
 
     my $t0 = [gettimeofday()] if $timing;
-    my $raw = qx($cmd);
+    # Safe list form of open to execute without shell interpolation
+    my $pid = open(my $fh, "-|", @cmd);
+    unless ($pid) {
+        log_verbose("Failed to execute openqa-cli: $!");
+        return undef;
+    }
+
+    my $raw = do { local $/; <$fh> };
+    close $fh;
+    my $rc = $? >> 8;
     my $elapsed = $timing ? tv_interval($t0) : 0;
 
     if ($timing) {
+        my $query_str = join(' ', @$args_ref);
         my $entry = {
             stage     => $stage // 'unknown',
-            query     => $query,
+            query     => $query_str,
             elapsed_s => sprintf("%.3f", $elapsed),
         };
         push @api_timings, $entry;
-        printf STDERR "[TIMING] %.3fs  %s  %s\n", $elapsed, ($stage // ''), $query;
+        printf STDERR "[TIMING] %.3fs  %s  %s\n", $elapsed, ($stage // ''), $query_str;
     }
 
-    return undef if $?;
-    chomp $raw;
-    return $raw if length $raw;
+    if ($rc != 0) {
+        log_verbose("openqa-cli failed with exit code $rc");
+        return undef;
+    }
+
+    chomp $raw if defined $raw;
+    return $raw if defined $raw && length $raw;
     return undef;
+}
+
+
+################################################################
+# Programmatic loader fallback: openQA module-name query
+################################################################
+
+# openQA stores each job module under its bare basename (e.g. a test loaded
+# from tests/publiccloud/download_repos.pm is module "download_repos" — the
+# category is a separate column, NOT part of the module= filter). Normalize any
+# accepted form (repo-relative path, tests/*.pm, or bare name) down to that
+# basename. Exception: loadtest(..., name => 'x') stores 'x' instead, so pass
+# the bare name for tests loaded that way.
+sub normalize_module_name {
+    my ($m) = @_;
+    $m =~ s{\.pm$}{};    # strip extension
+    $m =~ s{.*/}{};      # reduce to basename — openQA module names carry no category path
+    return $m;
+}
+
+sub run_modules_query {
+    my ($modules_ref) = @_;
+    my $limit = 3;
+
+    my @results;
+    for my $mod (@$modules_ref) {
+        my $bare = normalize_module_name($mod);
+        log_verbose("Module query: '$mod' → openQA module name '$bare'");
+
+        # openQA matches module names exactly (and splits on commas), and
+        # job_modules.name has no index: a name that matches nothing costs a
+        # full table scan (minutes on o3). Reject anything that cannot be a name.
+        if ($bare !~ /^\w+$/) {
+            warn "Warning: skipping '$mod' — not a valid openQA module name\n";
+            push @results, { module => $bare, jobs => [], error => "Invalid module name" };
+            next;
+        }
+
+        # result=passed (job-level) mirrors stage 3 and yields a clean clone
+        # baseline; modules=<name> restricts to jobs that ran this module.
+        # not_groupid=0 (server-side "group_id IS NOT NULL") drops VR clones
+        # posted with _GROUP=0, like the groupid filter does in stage 3.
+        my @query_args = ('jobs', "modules=$bare", 'result=passed', 'not_groupid=0',
+            'latest=1', "limit=$limit");
+        my $raw = run_openqa_api(\@query_args, 'modules_query');
+
+        my $rec = { module => $bare, jobs => [] };
+        if (!$raw) {
+            $rec->{error} = "API call failed";
+            warn "Warning: modules query failed for '$bare' on $host\n";
+            push @results, $rec;
+            next;
+        }
+
+        my $data = eval { JSON::PP->new->decode($raw) };
+        if ($@ || !$data) {
+            $rec->{error} = "Failed to parse API response";
+            warn "Warning: could not parse modules response for '$bare'\n";
+            push @results, $rec;
+            next;
+        }
+
+        my @jobs_list = @{$data->{jobs} // []};
+        log_verbose("module=$bare → " . scalar(@jobs_list) . " passing job(s) in a job group");
+        if (!@jobs_list) {
+            $rec->{error} = "No passing jobs found in a job group";
+            warn "Warning: no passing jobs in a job group found for module '$bare' on $host\n"
+                . "  The module name must match openQA's bare basename (e.g. 'download_repos').\n";
+            push @results, $rec;
+            next;
+        }
+
+        for my $j (@jobs_list) {
+            my $s = $j->{settings} // {};
+            push @{$rec->{jobs}}, {
+                id         => $j->{id},
+                flavor     => $s->{FLAVOR} // '',
+                version    => $s->{VERSION} // '',
+                distri     => $s->{DISTRI} // '',
+                arch       => $s->{ARCH} // '',
+                result     => $j->{result} // 'passed',
+                state      => $j->{state} // 'done',
+                t_finished => $j->{t_finished} // '',
+            };
+        }
+        push @results, $rec;
+    }
+
+    if ($json_output) {
+        print_modules_json(\@results);
+    } else {
+        print_modules_human(\@results);
+    }
+
+    if ($timing && @api_timings) {
+        print_timing_summary();
+    }
+}
+
+sub print_modules_json {
+    my ($results) = @_;
+
+    my @recs_out;
+    for my $r (@$results) {
+        my %rec = (module => $r->{module});
+        if ($r->{error}) {
+            $rec{error} = $r->{error};
+            $rec{passing_jobs} = [];
+        } else {
+            $rec{passing_jobs} = $r->{jobs};
+            $rec{clone_command} = build_clone_cmd($r->{jobs}[0]{id}) if @{$r->{jobs}};
+        }
+        push @recs_out, \%rec;
+    }
+
+    my %out = (
+        host            => $host,
+        casedir         => $casedir,
+        build           => $build,
+        query           => 'modules',
+        recommendations => \@recs_out,
+    );
+
+    if ($timing && @api_timings) {
+        my $total = 0;
+        $total += $_->{elapsed_s} for @api_timings;
+        $out{timing} = {
+            total_api_calls => scalar @api_timings,
+            total_elapsed_s => sprintf("%.3f", $total),
+            calls           => \@api_timings,
+            by_stage        => build_timing_by_stage(),
+        };
+    }
+
+    print JSON::PP->new->pretty->canonical->encode(\%out);
+}
+
+sub print_modules_human {
+    my ($results) = @_;
+
+    print "=" x 60 . "\n";
+    print "find_openqa_job.pl — openQA Job Discovery (module query)\n";
+    print "=" x 60 . "\n\n";
+
+    print "Host:    $host\n";
+    print "CASEDIR: " . ($casedir // '<not detected — use --casedir>') . "\n";
+    print "BUILD:   $build\n\n";
+
+    print "--- Clone Candidates ---\n\n";
+    for my $r (@$results) {
+        print "  module=$r->{module}\n";
+        if ($r->{error}) {
+            print "    ⚠ $r->{error}\n\n";
+            next;
+        }
+        for my $j (@{$r->{jobs}}) {
+            printf "    #%-10d %-30s %-10s %s  %s\n",
+                $j->{id}, $j->{flavor}, $j->{version}, $j->{result}, $j->{t_finished};
+        }
+        print "\n";
+    }
+
+    print "--- Clone Commands (copy-paste ready) ---\n\n";
+    my $printed = 0;
+    for my $r (@$results) {
+        next if $r->{error};
+        next unless @{$r->{jobs}};
+        my $j = $r->{jobs}[0];
+        print "  # module $r->{module} ($j->{version}, $j->{flavor})\n";
+        print "  " . build_clone_cmd($j->{id}) . "\n\n";
+        $printed++;
+    }
+    print "  (no clonable jobs found)\n\n" unless $printed;
 }
 
 
@@ -814,7 +1024,7 @@ sub build_clone_cmd {
     } else {
         $cmd .= "    CASEDIR='<YOUR_FORK_URL>.git#<YOUR_BRANCH>' \\\n";
     }
-    $cmd .= "    BUILD='$build' _GROUP=0";
+    $cmd .= "    BUILD='$build' TEST='$build' _GROUP=0";
     return $cmd;
 }
 
@@ -922,7 +1132,8 @@ OPTIONS
 
     --build STRING
         Override BUILD for clone commands. Default: auto-detect as
-        <github_username>_VR from the git remote.
+        <github_username>_VR from the git remote. Clone commands also
+        use it as TEST.
 
     --verbose
         Print stage-by-stage progress to stderr.
@@ -936,6 +1147,17 @@ OPTIONS
 
     --json
         Output structured JSON (via JSON::PP) instead of human-readable text.
+
+    --modules NAME
+        Programmatic-loader fallback. Instead of resolving YAML schedules,
+        query openQA directly for recent passing jobs that ran the given
+        module, and emit clone commands for them. Use this for tests loaded
+        at runtime via lib/main_*.pm (publiccloud, parts of kernel/LTP) that
+        have no static YAML schedule. May be given multiple times. NAME may
+        be a tests/*.pm path or a bare module name; it is normalized to the
+        openQA module basename (e.g. tests/publiccloud/download_repos.pm →
+        download_repos). Fast for commonly-run modules, but can take minutes
+        for rarely-run or unknown names — use sparingly.
 
     --help, -h
         Show this help message and exit.
@@ -965,6 +1187,9 @@ EXAMPLES
 
     # Measure API call timing for cost analysis
     perl find_openqa_job.pl --osd --timing schedule/ha/bv/basic_cluster_node.yaml
+
+    # Programmatic loader fallback: find jobs by module name (no YAML schedule)
+    perl find_openqa_job.pl --osd --modules tests/publiccloud/download_repos.pm
 
 DEPENDENCIES
     External: openqa-cli (from openQA-client package)

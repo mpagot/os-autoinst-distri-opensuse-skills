@@ -62,13 +62,13 @@ which openQA jobs to clone, and what commands to copy-paste.
 This is the most complex case — a library change potentially affects many tests.
 
 ```
-1.  classify_changes.pl --helpers --git-commit HASH
+1.  classify_changes.pl --helpers            (commits in BASE...HEAD)
         │
         ├── find_unit_test.pl
         │       Input:  lib/sles4sap/ipaddr2.pm
         │       Output: t/22_ipaddr2.t  →  prove command to run locally
         │
-        ├── find_affected_tests.pl --git-commit HASH
+        ├── find_affected_tests.pl --base BASE
         │       Input:  lib/sles4sap/ipaddr2.pm
         │       Output (two tiers):
         │         • VR-CONFIRMED TARGETS (function-level callers)
@@ -139,7 +139,7 @@ that enable piping:
 Example full pipe (lib/ change → clone command):
 
 ```bash
-perl find_affected_tests.pl --repo REPO --json --git-commit HASH lib/foo.pm \
+perl find_affected_tests.pl --repo REPO --json --base BASE lib/foo.pm \
   | jq -r '.recommended_tests[]' \
   | xargs perl find_test_schedule.pl --repo REPO --json \
   | jq -r '.results[].matches[] | select(.type=="yaml_schedule") | .file' \
@@ -158,12 +158,20 @@ clone.
 
 ### Two-tier output in `find_affected_tests.pl`
 
-Without `--git-commit`, only module-level dependency walking is possible
-(any test that imports the changed module). With `--git-commit`, the script
-parses diff hunks, maps changed lines to function boundaries, then traces
+Without `--base`, only module-level dependency walking is possible
+(any test that imports the changed module). With `--base`, the script
+parses the diff hunks of the committed changes (BASE...HEAD), maps changed
+lines to function boundaries, then traces
 callers of those functions through the codebase. The function-level tier
 eliminates false positives from tests that import the module but never call
 the modified code paths.
+
+Callers are matched per package: a call qualified with another package
+(`upload_system_log::upload_supportconfig_log`) is ignored, and a bare call
+only counts in files that import the changed package; `->method` calls
+always count. The upward walk stops at entry-point subs (`run`,
+`post_fail_hook`, `new`, `load_*`, ...): following them would reach nearly
+every test in the repository.
 
 ### Layered search in `find_data_consumers.pl`
 
