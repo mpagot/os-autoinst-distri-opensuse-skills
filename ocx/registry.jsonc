@@ -49,6 +49,14 @@
       ]
     },
     {
+      "name": "openqa-log-fetcher",
+      "type": "skill",
+      "description": "Fetches, caches, and inspects logs, test artifacts, and job metadata from openQA instances",
+      "files": [
+        "skills/openqa-log-fetcher/SKILL.md"
+      ]
+    },
+    {
       "name": "test-catalog",
       "type": "skill",
       "description": "Add or audit a Perldoc documentation header on an OSADO test module following the test catalog standard",

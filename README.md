@@ -108,12 +108,14 @@ For a complete list of use cases and detailed explanations, see
 | `git-commit` | Write OSADO-compliant commit messages for staged changes |
 | `github-pr-create` | End-to-end workflow: commit, push, and create PR upstream |
 | `openqa-log-analyzer` | Parse and extract sections from `autoinst-log.txt` |
+| `openqa-log-fetcher` | Fetch, cache, and inspect logs, test artifacts, and job metadata from openQA instances |
 
 ## Dependencies
 
 - `gh` (GitHub CLI) for PR operations.
 - `jq` for JSON processing.
 - `perl` for compilation checks.
+- `uv` / `uvx` (or `openqa-log-local`) for fetching openQA logs with `openqa-log-fetcher`.
 
 ## Installation
 
