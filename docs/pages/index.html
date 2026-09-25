@@ -147,46 +147,55 @@
 
     <div class="tab-content active" id="install-gemini" data-group="install">
       <p><strong>Install</strong> as a native Gemini CLI extension:</p>
-      <pre>gemini extensions install https://github.com/mpagot/os-autoinst-distri-opensuse-gemini</pre>
+      <pre>gemini extensions install https://github.com/mpagot/os-autoinst-distri-opensuse-skills</pre>
       <p><strong>Update:</strong></p>
-      <pre>gemini extensions update osado-ai-assistant</pre>
+      <pre>gemini extensions update osado-ai-assistant
+# or update all extensions:
+gemini-cli extensions update --all</pre>
       <p><strong>Uninstall:</strong></p>
       <pre>gemini extensions uninstall osado-ai-assistant</pre>
     </div>
 
     <div class="tab-content" id="install-claude" data-group="install">
       <p><strong>Subscribe</strong> to the marketplace (one-time):</p>
-      <pre>claude plugin marketplace add mpagot/os-autoinst-distri-opensuse-gemini</pre>
+      <pre>claude plugin marketplace add mpagot/os-autoinst-distri-opensuse-skills</pre>
       <p>Then in a Claude Code session:</p>
       <pre>/plugin install osado-ai-assistant@openqa-tools</pre>
+      <p><strong>Update:</strong></p>
+      <pre>claude plugins update osado-ai-assistant@openqa-tools</pre>
       <p>For full OSADO guidelines in every interaction, add to your project's <code>CLAUDE.md</code>:</p>
       <pre>@OSADO_AGENTS.md</pre>
     </div>
 
     <div class="tab-content" id="install-antigravity" data-group="install">
       <p><strong>Install</strong> as a native Antigravity CLI plugin:</p>
-      <pre>agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-gemini.git</pre>
+      <pre>agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-skills.git</pre>
       <p><strong>Verify:</strong></p>
       <pre>agy plugin list</pre>
       <p><strong>Update:</strong></p>
       <pre>agy plugin uninstall osado-ai-assistant
-agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-gemini.git</pre>
+agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-skills.git</pre>
       <p><strong>Uninstall:</strong></p>
       <pre>agy plugin uninstall osado-ai-assistant</pre>
     </div>
 
     <div class="tab-content" id="install-opencode" data-group="install">
-      <p><strong>OCX Registry (Recommended)</strong></p>
-      <p>Add our registry and install specific skills dynamically:</p>
-      <pre>ocx registry add https://mpagot.github.io/os-autoinst-distri-opensuse-gemini/ocx --name osado
-ocx add osado/local-lint-test</pre>
+      <p><strong>OCX Registry (Global)</strong></p>
+      <p>Initialize global config (one-time), add the registry, and install skills:</p>
+      <pre>ocx init -g
+ocx registry add https://mpagot.github.io/os-autoinst-distri-opensuse-skills/ocx --name osado -g
+ocx add -g osado/local-lint-test</pre>
+      <p><strong>Update:</strong></p>
+      <pre>ocx update -g osado/local-lint-test
+# or update all components:
+ocx update -g --all</pre>
     </div>
 
     <div class="tab-content" id="install-script" data-group="install">
       <p><strong>Global Install Script (all harnesses)</strong></p>
       <p>Clone the repository and install skills for any supported tool:</p>
-      <pre>git clone https://github.com/mpagot/os-autoinst-distri-opensuse-gemini
-cd os-autoinst-distri-opensuse-gemini
+      <pre>git clone https://github.com/mpagot/os-autoinst-distri-opensuse-skills
+cd os-autoinst-distri-opensuse-skills
 ./tools/install.sh antigravity install   # Antigravity CLI
 ./tools/install.sh opencode install      # OpenCode
 ./tools/install.sh gemini install /path/to/osado-repo
@@ -234,7 +243,7 @@ cd os-autoinst-distri-opensuse-gemini
     </div>
 
     <footer>
-      <p><a href="https://github.com/mpagot/os-autoinst-distri-opensuse-gemini">Source on GitHub</a>
+      <p><a href="https://github.com/mpagot/os-autoinst-distri-opensuse-skills">Source on GitHub</a>
       &middot; GPL-2.0-or-later
       &middot; Supports <a href="https://opencode.ai">OpenCode</a>,
       <a href="https://blog.google/technology/google-deepmind/gemini-cli-open-source/">Gemini CLI</a>,
