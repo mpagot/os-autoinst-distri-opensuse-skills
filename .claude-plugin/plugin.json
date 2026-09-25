@@ -1,7 +1,7 @@
 {
   "name": "osado-ai-assistant",
   "description": "OSADO developer productivity skills and commands for openQA/openSUSE work (os-autoinst-distri-opensuse).",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "repository": "https://github.com/mpagot/os-autoinst-distri-opensuse-gemini",
   "license": "GPL-2.0-or-later",
   "keywords": ["openqa", "opensuse", "perl", "testing", "osado"]
