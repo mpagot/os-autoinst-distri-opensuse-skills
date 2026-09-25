@@ -142,6 +142,7 @@
       <div class="tab" onclick="switchTab('install-claude', 'install')">Claude Code</div>
       <div class="tab" onclick="switchTab('install-antigravity', 'install')">Antigravity CLI</div>
       <div class="tab" onclick="switchTab('install-opencode', 'install')">OpenCode (OCX)</div>
+      <div class="tab" onclick="switchTab('install-skills-cli', 'install')">Skills CLI</div>
       <div class="tab" onclick="switchTab('install-script', 'install')">Install Script</div>
     </div>
 
@@ -189,6 +190,19 @@ ocx add -g osado/local-lint-test</pre>
       <pre>ocx update -g osado/local-lint-test
 # or update all components:
 ocx update -g --all</pre>
+    </div>
+
+    <div class="tab-content" id="install-skills-cli" data-group="install">
+      <p><strong>Universal Skills CLI (<a href="https://skills.sh" target="_blank" rel="noopener">skills.sh</a>)</strong></p>
+      <p>Install skills directly into supported AI coding assistants (Claude Code, Cursor, OpenCode, Codex, etc.):</p>
+      <p><strong>List available skills:</strong></p>
+      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills --list</pre>
+      <p><strong>Install globally:</strong></p>
+      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills -g</pre>
+      <p><strong>Install a specific skill:</strong></p>
+      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills --skill local-lint-test -g</pre>
+      <p><strong>Update skills:</strong></p>
+      <pre>npx skills update -g</pre>
     </div>
 
     <div class="tab-content" id="install-script" data-group="install">
@@ -245,7 +259,8 @@ cd os-autoinst-distri-opensuse-skills
     <footer>
       <p><a href="https://github.com/mpagot/os-autoinst-distri-opensuse-skills">Source on GitHub</a>
       &middot; GPL-2.0-or-later
-      &middot; Supports <a href="https://opencode.ai">OpenCode</a>,
+      &middot; Supports <a href="https://skills.sh">Agent Skills</a>,
+      <a href="https://opencode.ai">OpenCode</a>,
       <a href="https://blog.google/technology/google-deepmind/gemini-cli-open-source/">Gemini CLI</a>,
       <a href="https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview">Claude Code</a>,
       <a href="https://antigravity.google/docs/cli">Antigravity CLI</a></p>
