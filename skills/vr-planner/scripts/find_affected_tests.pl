@@ -13,14 +13,14 @@ use JSON::PP;
 my $repo_dir;
 my $verbose = 0;
 my $json_output = 0;
-my $git_commit;
+my $base;
 my $help = 0;
 
 GetOptions(
     'repo=s'       => \$repo_dir,
     'verbose'      => \$verbose,
     'json'         => \$json_output,
-    'git-commit=s' => \$git_commit,
+    'base=s'       => \$base,
     'help|h'       => \$help,
 ) or do { print_usage(); exit 1 };
 
@@ -39,18 +39,31 @@ $repo_dir = File::Spec->rel2abs($repo_dir);
 die "Not a valid OSADO repo: $repo_dir (missing lib/ or tests/)\n"
     unless -d "$repo_dir/lib" && -d "$repo_dir/tests";
 
-my @input_paths = @ARGV;
+# The ref is passed to git as an argument: a leading '-' would be parsed as an option
+die "Invalid --base value: '$base'\n"
+    if defined $base && $base =~ /^-/;
 
-# If --git-commit is given without explicit file args, auto-derive changed
-# lib/ files from the commit so the caller doesn't have to supply them.
-if (!@input_paths && $git_commit) {
-    my @changed = `git -C \Q$repo_dir\E diff-tree --no-commit-id -r --name-only \Q$git_commit\E 2>/dev/null`;
-    chomp @changed;
-    @input_paths = grep { m{^lib/.*\.pm$} } @changed;
-    die "No lib/*.pm files changed in commit $git_commit\n" unless @input_paths;
+sub run_cmd {
+    my (@cmd) = @_;
+    # A failed exec leaves $? untouched, so die rather than report success
+    open(my $fh, "-|", @cmd) or die "Cannot run '$cmd[0]': $!\n";
+    my @lines = <$fh>;
+    close $fh;
+    chomp @lines;
+    return @lines;
 }
 
-die "Usage: $0 [--repo DIR] [--verbose] [--json] [--git-commit HASH] lib/A/B.pm ...\n"
+my @input_paths = @ARGV;
+
+# If --base is given without explicit file args, auto-derive the lib/ files
+# committed on the branch (BASE...HEAD) so the caller doesn't have to supply them.
+if (!@input_paths && $base) {
+    my @changed = run_cmd('git', '-C', $repo_dir, 'diff', '--name-only', "$base...HEAD");
+    @input_paths = grep { m{^lib/.*\.pm$} } @changed;
+    die "No lib/*.pm files committed in $base...HEAD\n" unless @input_paths;
+}
+
+die "Usage: $0 [--repo DIR] [--verbose] [--json] [--base REF] lib/A/B.pm ...\n"
     unless @input_paths;
 # --- Step 1: Convert file paths to package names ---
 
@@ -222,7 +235,7 @@ find(sub {
 
 log_verbose("Scanned " . scalar(keys %test_deps) . " test files with dependencies");
 
-# --- Step 2b: Function-level analysis (when --git-commit is provided) ---
+# --- Step 2b: Function-level analysis (when --base is provided) ---
 
 # Build a sub boundary map for a file: returns arrayref of
 # { name => 'sub_name', start => N, end => N } sorted by start line.
@@ -304,29 +317,29 @@ sub find_enclosing_sub {
     return undef;
 }
 
-# Classify diff hunks for a specific file in a commit.
+# Classify diff hunks for a specific file committed on the branch (BASE...HEAD).
 # Returns a hashref:
 #   { functions => { func_name => 1, ... },
 #     module_scope => [ "description of module-scope change", ... ],
 #     inert => 0 or 1 }
 sub classify_diff_hunks {
-    my ($repo_dir, $commit, $file_path) = @_;
+    my ($repo_dir, $base, $file_path) = @_;
 
     my %result = (functions => {}, module_scope => [], inert => 1);
 
-    # Get the diff with full context to parse hunk line numbers
-    my $cmd = "git -C '$repo_dir' diff-tree -p --no-commit-id '$commit' -- '$file_path'";
-    log_verbose("Running: $cmd");
-    my @diff_lines = `$cmd`;
-    chomp @diff_lines;
+    # Get the diff to parse hunk line numbers. BASE...HEAD diffs HEAD against
+    # the merge-base, so upstream commits made after branching are excluded.
+    my @diff_cmd = ('git', '-C', $repo_dir, 'diff', "$base...HEAD", '--', $file_path);
+    log_verbose("Running: " . join(' ', @diff_cmd));
+    my @diff_lines = run_cmd(@diff_cmd);
 
     return \%result unless @diff_lines;
 
-    # Build the sub map from the NEW version of the file (post-commit)
-    # We use git show to get the file at that commit
-    my $show_cmd = "git -C '$repo_dir' show '$commit:$file_path'";
-    my @file_content = `$show_cmd`;
-    chomp @file_content;
+    # Build the sub map from the NEW version of the file: the committed HEAD,
+    # not the working tree, because that is what an openQA VR will run.
+    my @show_cmd = ('git', '-C', $repo_dir, 'show', "HEAD:$file_path");
+    log_verbose("Running: " . join(' ', @show_cmd));
+    my @file_content = run_cmd(@show_cmd);
 
     # Write to a temp file for build_sub_map; File::Temp auto-deletes on scope exit.
     my ($tfh, $tmpfile) = tempfile(SUFFIX => '.pm', UNLINK => 1);
@@ -410,10 +423,35 @@ sub classify_module_line {
     return 'module-scope code';
 }
 
-# Find all callers of a function name across specified directories.
+# Decide whether a source line calls $func_name defined in package $pkg.
+# $bare_ok is true when the file may call it unqualified (same package or
+# imports $pkg). Each occurrence of the name is classified by its prefix:
+#   ->func              method call, class unknown: accepted
+#   Pkg::func           accepted only if Pkg is $pkg (another package's
+#                       same-named function otherwise)
+#   func / &func        accepted only if $bare_ok
+#   sub func            the definition, never a call
+sub line_calls_function {
+    my ($line, $func_name, $pkg, $bare_ok) = @_;
+    while ($line =~ /(->\s*|\bsub\s+)?((?:\w+::)*)\b\Q$func_name\E\b/g) {
+        my ($prefix, $qualifier) = ($1 // '', $2);
+        next if $prefix =~ /sub/;
+        return 1 if $prefix;
+        if ($qualifier ne '') {
+            $qualifier =~ s/::$//;
+            return 1 if $qualifier eq $pkg;
+            next;
+        }
+        return 1 if $bare_ok;
+    }
+    return 0;
+}
+
+# Find all callers of function $func_name (defined in package $pkg) across
+# the specified directories.
 # Returns arrayref of { file => rel_path, line => N, context => "line content" }
 sub find_function_callers {
-    my ($func_name, @search_dirs) = @_;
+    my ($func_name, $pkg, @search_dirs) = @_;
     my @callers;
 
     for my $dir (@search_dirs) {
@@ -422,12 +460,15 @@ sub find_function_callers {
             my $abs_path = $File::Find::name;
             my $rel = File::Spec->abs2rel($abs_path, $repo_dir);
 
+            # Unqualified calls resolve only inside $pkg itself or in files importing it
+            my $imports = $rel =~ m{^lib/} ? $lib_deps{path_to_pkg($rel)} : $test_deps{$rel};
+            my $bare_ok = ($rel =~ m{^lib/} && path_to_pkg($rel) eq $pkg)
+                || ($imports && $imports->{$pkg});
+
             open my $fh, '<', $abs_path or return;
             while (my $line = <$fh>) {
-                # Match function call: func_name( or func_name space/semicolon
-                # but not the definition line (sub func_name)
-                if ($line =~ /\b\Q$func_name\E\b/ && $line !~ /^\s*sub\s+\Q$func_name\E\b/
-                    && $line !~ /^\s*#/ && $line !~ /EXPORT/) {
+                if ($line !~ /^\s*#/ && $line !~ /EXPORT/
+                    && line_calls_function($line, $func_name, $pkg, $bare_ok)) {
                     chomp $line;
                     $line =~ s/^\s+//;
                     push @callers, { file => $rel, line => $., context => $line };
@@ -440,26 +481,32 @@ sub find_function_callers {
     return \@callers;
 }
 
+# Subs where the upward walk stops: openQA test hooks, constructors and
+# schedule loaders (load_*). Their callers are the test runner or the whole
+# schedule, so following them would reach nearly every test.
+my $ENTRY_POINT_RE = qr/^(?:run|pre_run_hook|post_run_hook|post_fail_hook|test_flags|new|load_\w+)$/;
+
 # Walk transitive function-level callers through lib/.
-# Starting from a set of function names, find callers in lib/,
-# determine which sub contains each call site, then find callers
-# of *those* subs, and so on (BFS).
+# Starting from a set of function names defined in $root_pkg, find callers
+# in lib/, determine which sub contains each call site, then find callers
+# of *those* subs, and so on (BFS). Entry-point subs are recorded but not
+# followed.
 # Returns:
-#   { func_name => { callers => [...], lib_sub_callers => { sub_name => [callers] } } }
+#   { func_name => [caller entries from tests/ and lib/] }
 sub find_transitive_function_callers {
-    my (@root_funcs) = @_;
+    my ($root_pkg, @root_funcs) = @_;
 
     my %all_callers;     # func_name => [caller entries from tests/ and lib/]
-    my %visited_funcs;   # func names already processed
-    my @queue = @root_funcs;
+    my %visited_funcs;   # "pkg::func" already processed
+    my @queue = map { [$root_pkg, $_] } @root_funcs;
 
     while (@queue) {
-        my $func = shift @queue;
-        next if $visited_funcs{$func}++;
+        my ($pkg, $func) = @{shift @queue};
+        next if $visited_funcs{"${pkg}::$func"}++;
 
-        my $callers = find_function_callers($func,
+        my $callers = find_function_callers($func, $pkg,
             "$repo_dir/tests", "$repo_dir/lib");
-        $all_callers{$func} = $callers;
+        push @{$all_callers{$func}}, @$callers;
 
         # For callers found in lib/, identify the enclosing sub.
         # If it's a new function we haven't visited, enqueue it.
@@ -468,9 +515,14 @@ sub find_transitive_function_callers {
             my $sub_map = build_sub_map("$repo_dir/$caller->{file}");
             my $enclosing = find_enclosing_sub($sub_map, $caller->{line});
             $caller->{enclosing_sub} = $enclosing;
-            if ($enclosing && !$visited_funcs{$enclosing}) {
-                push @queue, $enclosing;
+            next unless $enclosing;
+            if ($enclosing =~ $ENTRY_POINT_RE) {
+                $caller->{entry_point} = 1;
+                next;
             }
+            my $caller_pkg = path_to_pkg($caller->{file});
+            push @queue, [$caller_pkg, $enclosing]
+                unless $visited_funcs{"${caller_pkg}::$enclosing"};
         }
     }
 
@@ -482,15 +534,15 @@ sub find_transitive_function_callers {
 my %func_analysis;    # Will hold function-level results if available
 my $has_func_analysis = 0;
 
-if ($git_commit) {
-    log_verbose("Performing function-level analysis for commit $git_commit");
+if ($base) {
+    log_verbose("Performing function-level analysis for $base...HEAD");
 
     for my $path (@input_paths) {
         my $rel = $path;
         $rel =~ s{^\Q$repo_dir\E/}{};
         $rel =~ s{^\.\/}{};
 
-        my $classification = classify_diff_hunks($repo_dir, $git_commit, $rel);
+        my $classification = classify_diff_hunks($repo_dir, $base, $rel);
 
         my @func_names = sort keys %{$classification->{functions}};
         my @mod_scope  = @{$classification->{module_scope}};
@@ -503,7 +555,7 @@ if ($git_commit) {
 
         if (@func_names) {
             log_verbose("Changed functions in $rel: " . join(", ", @func_names));
-            my $callers = find_transitive_function_callers(@func_names);
+            my $callers = find_transitive_function_callers(path_to_pkg($rel), @func_names);
             $func_analysis{$rel}{callers} = $callers;
 
             # Count test callers
@@ -574,7 +626,7 @@ for my $test_file (sort keys %test_deps) {
 my %is_target = map { $_ => 1 } @target_pkgs;
 my @transitive_pkgs = sort grep { !$is_target{$_} } keys %$expanded_set;
 
-# Build func_analysis reference (undef if no --git-commit)
+# Build func_analysis reference (undef if no --base)
 my $fa_ref = $has_func_analysis ? \%func_analysis : undef;
 
 if ($json_output) {
@@ -648,6 +700,7 @@ sub print_text {
                         for my $c (sort { $a->{file} cmp $b->{file} }
                                    @{$func_lib_callers{$func}}) {
                             my $enc = $c->{enclosing_sub} ? " (in sub $c->{enclosing_sub})" : "";
+                            $enc .= " [entry point, not followed]" if $c->{entry_point};
                             print "    $c->{file}:$c->{line}$enc calls $func\n";
                         }
                     }
@@ -776,6 +829,7 @@ sub print_json {
                             line    => $_->{line},
                             context => $_->{context},
                             ($_->{enclosing_sub} ? (enclosing_sub => $_->{enclosing_sub}) : ()),
+                            ($_->{entry_point} ? (entry_point => JSON::PP::true) : ()),
                         } } @{$fa->{callers}{$func}}
                     ];
                     # Collect test-level callers for recommended_tests
@@ -803,7 +857,7 @@ sub print_json {
             $out{recommended_tests} = [map { $_->{file} } @{$out{affected_tests}}];
         }
     } else {
-        # No --git-commit: use full module-level list
+        # No --base: use full module-level list
         $out{recommended_tests} = [map { $_->{file} } @{$out{affected_tests}}];
     }
 
@@ -846,10 +900,15 @@ OPTIONS
         Path to the OSADO repository root. Defaults to the current directory.
         The directory must contain lib/ and tests/ subdirectories.
 
-    --git-commit HASH
-        Derive changed lib/*.pm files from the given commit instead of using
-        positional arguments. Also enables function-level analysis: identifies
-        which functions changed and traces their callers.
+    --base REF
+        Enable function-level analysis of the changes committed on the current
+        branch since REF (git diff REF...HEAD): identifies which functions
+        changed and traces their callers (package-scoped name matching; the
+        walk stops at run/post_fail_hook/new/load_* entry points). REF is
+        usually the upstream master
+        (e.g. upstream/master), as reported by classify_changes.pl. Without
+        positional arguments, the changed lib/*.pm files are derived from the
+        same range. Uncommitted changes are ignored.
 
     --verbose
         Show dependency chains and function-level caller details.
@@ -870,8 +929,8 @@ EXAMPLES
 
     perl find_affected_tests.pl --json --repo /path/to/osado lib/sles4sap/ipaddr2.pm
 
-    # With function-level analysis for a specific commit:
-    perl find_affected_tests.pl --repo /path/to/osado --git-commit abc1234 \
+    # With function-level analysis of the commits on the current branch:
+    perl find_affected_tests.pl --repo /path/to/osado --base upstream/master \
         lib/sles4sap/ipaddr2.pm
 
 SEE ALSO
