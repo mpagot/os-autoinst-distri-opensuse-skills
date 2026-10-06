@@ -43,7 +43,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_URL="https://github.com/mpagot/os-autoinst-distri-opensuse-gemini.git"
+REPO_URL="https://github.com/os-autoinst/osado-skills.git"
 OPENCODE_INSTALL_DIR="${HOME}/.config/opencode/skills/osado-skills"
 
 # --- Colors ---
@@ -154,7 +154,8 @@ opencode_install() {
         else
             log_error "Directory $OPENCODE_INSTALL_DIR exists but points to a different repo."
             log_error "Remote: $remote"
-            log_error "Remove it manually if you want to reinstall."
+            log_error "The OSADO skills repository moved to $REPO_URL"
+            log_error "Run '$0 opencode uninstall', then '$0 opencode install' again."
             exit 1
         fi
     fi

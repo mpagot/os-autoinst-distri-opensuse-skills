@@ -2,7 +2,7 @@ name: GitHub Pages (Docs + OCX Registry)
 
 # Builds project documentation at / and the OCX registry at /ocx/.
 # End users install skills via:
-#   ocx registry add https://mpagot.github.io/os-autoinst-distri-opensuse-gemini/ocx --name osado
+#   ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado
 #   ocx add osado/local-lint-test
 
 on:
@@ -50,7 +50,7 @@ jobs:
       - name: Build documentation landing page
         run: |
           cp docs/pages/index.html _site/index.html 2>/dev/null \
-            || echo '<meta http-equiv="refresh" content="0;url=https://github.com/mpagot/os-autoinst-distri-opensuse-gemini">' > _site/index.html
+            || echo '<meta http-equiv="refresh" content="0;url=https://github.com/os-autoinst/osado-skills">' > _site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

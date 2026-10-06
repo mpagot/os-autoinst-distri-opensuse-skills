@@ -370,7 +370,7 @@ if [[ "$*" == *"clone"* ]]; then
     exit 0
 fi
 if [[ "$*" == *"remote"*"get-url"* ]]; then
-    echo "https://github.com/mpagot/os-autoinst-distri-opensuse-gemini.git"
+    echo "https://github.com/os-autoinst/osado-skills.git"
     exit 0
 fi
 if [[ "$*" == *"fetch"* ]]; then
