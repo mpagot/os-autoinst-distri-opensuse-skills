@@ -1,4 +1,4 @@
-# Agent Guidelines for os-autoinst-distri-opensuse-gemini
+# Agent Guidelines for osado-skills
 
 This repository develops and maintains **AI coding assistant skills and
 commands** for the `os-autoinst-distri-opensuse` (OSADO) project. It is

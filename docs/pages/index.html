@@ -37,6 +37,11 @@
     .card { border: 1px solid #e0e0e0; border-radius: 6px; padding: 1rem 1.2rem; }
     .card h3 { font-size: 0.95rem; margin-bottom: 0.3rem; font-family: 'SF Mono', Menlo, monospace; }
     .card p { font-size: 0.85rem; color: #555; }
+    /* Migration notice */
+    .notice { border: 1px solid #d4a72c; border-left: 4px solid #d4a72c; border-radius: 6px;
+              background: #fff8c5; padding: 0.8rem 1.2rem; margin-bottom: 1rem; font-size: 0.9rem; }
+    .notice p { margin: 0.3rem 0; }
+    .notice a { color: #0969da; }
     footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #e0e0e0;
              text-align: center; color: #666; font-size: 0.85rem; }
     footer a { color: #0969da; text-decoration: none; }
@@ -135,7 +140,7 @@
      PR #18742 created: https://github.com/os-autoinst/.../pull/18742</pre>
     </div>
 
-    <h2>Installation</h2>
+    <h2 id="installation">Installation</h2>
 
     <div class="tabs">
       <div class="tab active" onclick="switchTab('install-gemini', 'install')">Gemini CLI</div>
@@ -148,7 +153,7 @@
 
     <div class="tab-content active" id="install-gemini" data-group="install">
       <p><strong>Install</strong> as a native Gemini CLI extension:</p>
-      <pre>gemini extensions install https://github.com/mpagot/os-autoinst-distri-opensuse-skills</pre>
+      <pre>gemini extensions install https://github.com/os-autoinst/osado-skills</pre>
       <p><strong>Update:</strong></p>
       <pre>gemini extensions update osado-ai-assistant
 # or update all extensions:
@@ -159,7 +164,7 @@ gemini-cli extensions update --all</pre>
 
     <div class="tab-content" id="install-claude" data-group="install">
       <p><strong>Subscribe</strong> to the marketplace (one-time):</p>
-      <pre>claude plugin marketplace add mpagot/os-autoinst-distri-opensuse-skills</pre>
+      <pre>claude plugin marketplace add os-autoinst/osado-skills</pre>
       <p>Then in a Claude Code session:</p>
       <pre>/plugin install osado-ai-assistant@openqa-tools</pre>
       <p><strong>Update:</strong></p>
@@ -170,12 +175,12 @@ gemini-cli extensions update --all</pre>
 
     <div class="tab-content" id="install-antigravity" data-group="install">
       <p><strong>Install</strong> as a native Antigravity CLI plugin:</p>
-      <pre>agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-skills.git</pre>
+      <pre>agy plugin install https://github.com/os-autoinst/osado-skills.git</pre>
       <p><strong>Verify:</strong></p>
       <pre>agy plugin list</pre>
       <p><strong>Update:</strong></p>
       <pre>agy plugin uninstall osado-ai-assistant
-agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-skills.git</pre>
+agy plugin install https://github.com/os-autoinst/osado-skills.git</pre>
       <p><strong>Uninstall:</strong></p>
       <pre>agy plugin uninstall osado-ai-assistant</pre>
     </div>
@@ -184,7 +189,7 @@ agy plugin install https://github.com/mpagot/os-autoinst-distri-opensuse-skills.
       <p><strong>OCX Registry (Global)</strong></p>
       <p>Initialize global config (one-time), add the registry, and install skills:</p>
       <pre>ocx init -g
-ocx registry add https://mpagot.github.io/os-autoinst-distri-opensuse-skills/ocx --name osado -g
+ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado -g
 ocx add -g osado/local-lint-test</pre>
       <p><strong>Update:</strong></p>
       <pre>ocx update -g osado/local-lint-test
@@ -196,11 +201,11 @@ ocx update -g --all</pre>
       <p><strong>Universal Skills CLI (<a href="https://skills.sh" target="_blank" rel="noopener">skills.sh</a>)</strong></p>
       <p>Install skills directly into supported AI coding assistants (Claude Code, Cursor, OpenCode, Codex, etc.):</p>
       <p><strong>List available skills:</strong></p>
-      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills --list</pre>
+      <pre>npx skills add os-autoinst/osado-skills --list</pre>
       <p><strong>Install globally:</strong></p>
-      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills -g</pre>
+      <pre>npx skills add os-autoinst/osado-skills -g</pre>
       <p><strong>Install a specific skill:</strong></p>
-      <pre>npx skills add mpagot/os-autoinst-distri-opensuse-skills --skill local-lint-test -g</pre>
+      <pre>npx skills add os-autoinst/osado-skills --skill local-lint-test -g</pre>
       <p><strong>Update skills:</strong></p>
       <pre>npx skills update -g</pre>
     </div>
@@ -208,8 +213,8 @@ ocx update -g --all</pre>
     <div class="tab-content" id="install-script" data-group="install">
       <p><strong>Global Install Script (all harnesses)</strong></p>
       <p>Clone the repository and install skills for any supported tool:</p>
-      <pre>git clone https://github.com/mpagot/os-autoinst-distri-opensuse-skills
-cd os-autoinst-distri-opensuse-skills
+      <pre>git clone https://github.com/os-autoinst/osado-skills
+cd osado-skills
 ./tools/install.sh antigravity install   # Antigravity CLI
 ./tools/install.sh opencode install      # OpenCode
 ./tools/install.sh gemini install /path/to/osado-repo
@@ -217,6 +222,91 @@ cd os-autoinst-distri-opensuse-skills
       <p><strong>Update / Uninstall (replace install with update or uninstall):</strong></p>
       <pre>./tools/install.sh antigravity update
 ./tools/install.sh opencode uninstall</pre>
+    </div>
+
+    <h2 id="migration">Migration from the old repository</h2>
+
+    <div class="notice">
+      <p>The project moved from <code>mpagot/os-autoinst-distri-opensuse-skills</code>
+        (first named <code>mpagot/os-autoinst-distri-opensuse-gemini</code>) to
+        <a href="https://github.com/os-autoinst/osado-skills">os-autoinst/osado-skills</a>.</p>
+      <p>Installations from the old repository do not get updates any more.
+        Remove the old installation, then install again from the new repository.</p>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('mig-gemini', 'migration')">Gemini CLI</div>
+      <div class="tab" onclick="switchTab('mig-claude', 'migration')">Claude Code</div>
+      <div class="tab" onclick="switchTab('mig-antigravity', 'migration')">Antigravity CLI</div>
+      <div class="tab" onclick="switchTab('mig-opencode', 'migration')">OpenCode (OCX)</div>
+      <div class="tab" onclick="switchTab('mig-skills-cli', 'migration')">Skills CLI</div>
+      <div class="tab" onclick="switchTab('mig-script', 'migration')">Install Script</div>
+    </div>
+
+    <div class="tab-content active" id="mig-gemini" data-group="migration">
+      <p><strong>Check</strong> the source of the installed extension. Look for <code>mpagot</code> in the <code>Source:</code> line of <code>osado-ai-assistant</code>:</p>
+      <pre>gemini extensions list</pre>
+      <p><strong>Remove</strong> the old extension:</p>
+      <pre>gemini extensions uninstall osado-ai-assistant</pre>
+      <p><strong>Install</strong> from the new repository:</p>
+      <pre>gemini extensions install https://github.com/os-autoinst/osado-skills</pre>
+    </div>
+
+    <div class="tab-content" id="mig-claude" data-group="migration">
+      <p><strong>Check</strong> the source of the <code>openqa-tools</code> marketplace. The old one shows <code>GitHub (mpagot/...)</code>:</p>
+      <pre>claude plugin marketplace list</pre>
+      <p><strong>Remove</strong> the plugin and the old marketplace. The new marketplace has the same name (<code>openqa-tools</code>), so you must remove the old one first:</p>
+      <pre>claude plugin uninstall osado-ai-assistant@openqa-tools
+claude plugin marketplace remove openqa-tools</pre>
+      <p><strong>Install</strong> from the new repository:</p>
+      <pre>claude plugin marketplace add os-autoinst/osado-skills
+claude plugin install osado-ai-assistant@openqa-tools</pre>
+      <p>Start a new Claude Code session to load the plugin.</p>
+    </div>
+
+    <div class="tab-content" id="mig-antigravity" data-group="migration">
+      <p><code>agy plugin list</code> does not show where a plugin comes from. If you installed <code>osado-ai-assistant</code> before the move, reinstall it.</p>
+      <p><strong>Remove</strong> the old plugin:</p>
+      <pre>agy plugin uninstall osado-ai-assistant</pre>
+      <p><strong>Install</strong> from the new repository:</p>
+      <pre>agy plugin install https://github.com/os-autoinst/osado-skills.git</pre>
+      <p>If you imported the plugin from Gemini CLI or Claude Code with <code>agy plugin import</code>, migrate that tool first, then import again.</p>
+    </div>
+
+    <div class="tab-content" id="mig-opencode" data-group="migration">
+      <p><strong>Check</strong> the URL of the <code>osado</code> registry. The old one starts with <code>https://mpagot.github.io/</code>:</p>
+      <pre>ocx registry list -g</pre>
+      <p><strong>Remove</strong> the installed skills and the old registry (repeat <code>ocx remove</code> for each skill you installed):</p>
+      <pre>ocx remove osado/local-lint-test
+ocx registry remove osado -g</pre>
+      <p><strong>Install</strong> from the new registry:</p>
+      <pre>ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado -g
+ocx add -g osado/local-lint-test</pre>
+    </div>
+
+    <div class="tab-content" id="mig-skills-cli" data-group="migration">
+      <p><strong>Check</strong> the source of the installed skills. The old ones show <code>Source: mpagot/...</code>:</p>
+      <pre>npx skills ls -g</pre>
+      <p><strong>Remove</strong> the old skills (name the skills you installed; <code>npx skills remove -g</code> without names asks interactively):</p>
+      <pre>npx skills remove -g local-lint-test vr-planner test-catalog unit-test-wizard \
+  openqa-log-analyzer openqa-log-fetcher git-commit github-pr-create</pre>
+      <p><strong>Install</strong> from the new repository:</p>
+      <pre>npx skills add os-autoinst/osado-skills -g</pre>
+    </div>
+
+    <div class="tab-content" id="mig-script" data-group="migration">
+      <p><strong>Remove</strong> the old installation, from your clone of the old repository:</p>
+      <pre>cd /path/to/os-autoinst-distri-opensuse-gemini
+./tools/install.sh antigravity uninstall
+./tools/install.sh opencode uninstall
+./tools/install.sh gemini uninstall /path/to/osado-repo
+./tools/install.sh claude uninstall /path/to/osado-repo</pre>
+      <p>Run only the lines for the tools you installed. Then delete the old clone.</p>
+      <p><strong>Install</strong> from a new clone:</p>
+      <pre>git clone https://github.com/os-autoinst/osado-skills
+cd osado-skills
+./tools/install.sh antigravity install</pre>
+      <p>See the <em>Install Script</em> tab in <a href="#installation">Installation</a> for the other tools.</p>
     </div>
 
     <h2>Skills</h2>
@@ -257,7 +347,7 @@ cd os-autoinst-distri-opensuse-skills
     </div>
 
     <footer>
-      <p><a href="https://github.com/mpagot/os-autoinst-distri-opensuse-skills">Source on GitHub</a>
+      <p><a href="https://github.com/os-autoinst/osado-skills">Source on GitHub</a>
       &middot; GPL-2.0-or-later
       &middot; Supports <a href="https://skills.sh">Agent Skills</a>,
       <a href="https://opencode.ai">OpenCode</a>,

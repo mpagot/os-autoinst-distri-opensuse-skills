@@ -2,7 +2,7 @@
 
 ## Opening an issue
 
-Use [GitHub Issues](https://github.com/mpagot/os-autoinst-distri-opensuse-gemini/issues) for:
+Use [GitHub Issues](https://github.com/os-autoinst/osado-skills/issues) for:
 - Bug reports — include the harness version (`agy plugin list`, `gemini --version`, etc.), the exact command run, and the error output
 - Skill improvement suggestions — describe the OSADO workflow you want help with
 - Feature requests — explain the use case, not just the desired behavior
@@ -55,7 +55,7 @@ git push
 
 # 4. Create the release (auto-generates notes from merged PR titles)
 gh release create v1.1.0 \
-  --repo mpagot/os-autoinst-distri-opensuse-gemini \
+  --repo os-autoinst/osado-skills \
   --title "v1.1.0" \
   --generate-notes
 ```

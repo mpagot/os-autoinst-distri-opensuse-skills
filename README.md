@@ -5,6 +5,14 @@ AI-powered developer productivity skills for the
 (OSADO) project. Provides modular **Skills** and **Commands** that act as an
 on-demand pair programmer aware of OSADO architecture and workflows.
 
+> [!IMPORTANT]
+> The project moved from `mpagot/os-autoinst-distri-opensuse-skills` to
+> [os-autoinst/osado-skills](https://github.com/os-autoinst/osado-skills).
+> Installations from the old repository do not get updates any more. To
+> migrate, remove the old installation and install again from the new
+> repository, as described in
+> [Migration from the old repository](https://os-autoinst.github.io/osado-skills/#migration).
+
 ## See It in Action
 
 A few examples of what the assistant can do during a typical OSADO session.
@@ -128,8 +136,8 @@ See the [installation](INSTALL.md) document.
 
 ```bash
 # Clone and link for local development
-git clone https://github.com/mpagot/os-autoinst-distri-opensuse-gemini
-cd os-autoinst-distri-opensuse-gemini
+git clone https://github.com/os-autoinst/osado-skills
+cd osado-skills
 gemini extensions link .
 ```
 

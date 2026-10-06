@@ -357,7 +357,7 @@ mkdir -p "$FAKE_OPENCODE_DIR/.git"
 cat > "$MOCK_BIN/git" <<'EOF'
 #!/bin/bash
 if [[ "$*" == *"remote"*"get-url"* ]]; then
-    echo "https://github.com/mpagot/os-autoinst-distri-opensuse-gemini.git"
+    echo "https://github.com/os-autoinst/osado-skills.git"
     exit 0
 fi
 /usr/bin/git "$@"
