@@ -59,39 +59,45 @@ Uninstall:
 
 ### Registry Installation (Recommended)
 
-If you use [OCX](https://github.com/kdcokenny/ocx), you can install individual skills from our registry.
+If using [OCX](https://github.com/kdcokenny/ocx), skills can be installed directly from this registry.
 
-If you don't already have it, install OCX (standalone binary, no Node/Bun needed):
-```bash
-curl -fsSL https://ocx.kdco.dev/install.sh | sh
-```
-Or if you already have `bun` you can call `ocx` with `npx ocx@latest`.
+> **Note for OpenCode V1:** OCX 2.0.15 is the frozen client for OpenCode V1 (OCX 3+ targets OpenCode V2). If using Bun or npm, invoke as `bunx ocx@2.0.15` or install via:
+> ```bash
+> bun add --global ocx@2.0.15
+> # or:
+> npm install --global ocx@2.0.15
+> ```
 
 One-time: init and add the OSADO registry:
 ```bash
-cd /path/to/your/os-autoinst-distri-opensuse
-
+# Project-level (inside the os-autoinst-distri-opensuse clone):
+cd /path/to/os-autoinst-distri-opensuse
 ocx init
-# ✔ Initialized OCX configuration
-# info Created /path/to/your/os-autoinst-distri-opensuse/.opencode/ocx.jsonc
-# info Created /path/to/your/os-autoinst-distri-opensuse/.opencode/opencode.jsonc
-
 ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado
-# ✓ Added registry to local config: osado -> https://os-autoinst.github.io/osado-skills/ocx
+
+# Or globally (for all workspaces):
+ocx init -g
+ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado -g
 ```
 
 Install a specific skill:
 ```bash
 ocx add osado/local-lint-test
-# ✔ Resolved 1 components from 1 registries
-# ✔ Fetched 1 components
-# ✔ Installed 1 components
-# ✓ Done! Installed 1 components.
+# (or globally: ocx add -g osado/local-lint-test)
+```
+
+Install all skills at once:
+```bash
+ocx add osado/{git-commit,github-pr-create,local-lint-test,openqa-log-analyzer,openqa-log-fetcher,test-catalog,unit-test-wizard,vr-planner}
+# (or globally: ocx add -g osado/{git-commit,github-pr-create,local-lint-test,openqa-log-analyzer,openqa-log-fetcher,test-catalog,unit-test-wizard,vr-planner})
 ```
 
 Update:
 ```bash
 ocx update osado/local-lint-test
+# or update all components:
+ocx update --all
+# (or globally: ocx update -g --all)
 ```
 
 ### Script Installation

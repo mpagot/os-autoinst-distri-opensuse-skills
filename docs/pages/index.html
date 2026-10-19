@@ -188,13 +188,14 @@ agy plugin install https://github.com/os-autoinst/osado-skills.git</pre>
     <div class="tab-content" id="install-opencode" data-group="install">
       <p><strong>OCX Registry (Global)</strong></p>
       <p>Initialize global config (one-time), add the registry, and install skills:</p>
-      <pre>ocx init -g
+      <pre># Note: OCX 2.0.15 is the frozen client for OpenCode V1 (e.g. bunx ocx@2.0.15)
+ocx init -g
 ocx registry add https://os-autoinst.github.io/osado-skills/ocx --name osado -g
-ocx add -g osado/local-lint-test</pre>
+ocx add -g osado/{git-commit,github-pr-create,local-lint-test,openqa-log-analyzer,openqa-log-fetcher,test-catalog,unit-test-wizard,vr-planner}</pre>
       <p><strong>Update:</strong></p>
-      <pre>ocx update -g osado/local-lint-test
-# or update all components:
-ocx update -g --all</pre>
+      <pre>ocx update -g --all
+# or a specific skill:
+ocx update -g osado/local-lint-test</pre>
     </div>
 
     <div class="tab-content" id="install-skills-cli" data-group="install">
