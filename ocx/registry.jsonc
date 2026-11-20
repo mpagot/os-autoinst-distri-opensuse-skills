@@ -17,7 +17,7 @@
     {
       "name": "github-pr-create",
       "type": "skill",
-      "description": "Creates a GitHub pull request from staged git changes, handling commit, push, and PR creation in one workflow",
+      "description": "Pushes the current branch and creates a GitHub pull request against os-autoinst-distri-opensuse",
       "files": [
         "skills/github-pr-create/SKILL.md"
       ]

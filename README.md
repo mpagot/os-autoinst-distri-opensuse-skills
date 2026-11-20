@@ -85,19 +85,20 @@ AI:  Scanning az_disk_create... 3 mandatory args (resource_group, name, size_gb)
      Run: prove -lv -Ios-autoinst/ t/21_sles4sap_azure_cli.t
 ```
 
-### 🚀 Commit and open a PR in one shot
+### 🚀 Open a PR from a committed branch
+
+Commit first with `/git_commit` (or the `git-commit` skill), then:
 
 ```
 You: /github_pr_create
 
-AI:  Inspecting staged changes... 2 files modified (lib/sles4sap/azure_cli.pm, t/sles4sap/azure_cli.t).
-     Proposed commit message:
-       "Add retry logic to azure_cli resource group creation"
-     Written to commit_message.txt -- please review and confirm.
+AI:  Working tree clean. Branch add-retry-azure-cli.
+     Reading .github/PULL_REQUEST_TEMPLATE.md...
+     Which ticket does this fix?
 
-You: Looks good, go ahead.
+You: poo#123456
 
-AI:  Committed. Pushing to origin/add-retry-azure-cli...
+AI:  Pushing origin/add-retry-azure-cli...
      Creating PR against os-autoinst/os-autoinst-distri-opensuse...
      PR #18742 created: https://github.com/os-autoinst/os-autoinst-distri-opensuse/pull/18742
 ```
@@ -114,7 +115,7 @@ For a complete list of use cases and detailed explanations, see
 | `test-catalog` | Add/audit Perldoc documentation headers on test modules |
 | `vr-planner` | Answers: *"What remote openQA jobs should I clone to verify my change?"* |
 | `git-commit` | Write OSADO-compliant commit messages for staged changes |
-| `github-pr-create` | End-to-end workflow: commit, push, and create PR upstream |
+| `github-pr-create` | Push the current branch and create a PR upstream (commit via `git-commit`) |
 | `openqa-log-analyzer` | Parse and extract sections from `autoinst-log.txt` |
 | `openqa-log-fetcher` | Fetch, cache, and inspect logs, test artifacts, and job metadata from openQA instances |
 

@@ -14,16 +14,17 @@ Please try to mention in the commit message the following topic if provided: {{a
 Based on your analysis, propose a concise and informative commit message that strictly follows the **OSADO CONTRIBUTING.md** rules:
 
 #### Subject line rules:
-- **Must start with a capital letter or a tag** (e.g., `Fix deep issue...` or `bugfix: Fix...`).
-- **Must NOT exceed 72 characters**.
+- **Must start with a `<scope>:` prefix** naming the affected area (kernel style), e.g. `lib/utils: Fix deep issue in a library` or `containers: Fix deep issue in test module`.
+- **Must NOT exceed 72 characters**, scope included.
 - **Must NOT end with a dot**.
-- **Must NOT** use conventional commit tags like `(feat)` or `feat(scope):`.
+- **Must NOT** use conventional commit types like `(feat)` or `feat(scope):`. The `scope:` names the affected area, not a commit type.
 
 #### Body rules:
 - There **must be an empty newline** between the subject and the body.
-- The body should explain **"what"** and **"why"** of the changes.
-- Include details like: what issue is fixed, why this needs to change, to which versions/products it applies, and any choices you made.
+- The body should explain **"why"** and then **"what"** of the changes.
+- Include details like: why this needs to change, what issue is fixed, to which versions/products it applies, and any choices you made.
 - Mention bug/ticket references if applicable (e.g., `bsc#12345`, `poo#12345`).
+- Add one `Assisted-by: <model>` trailer per LLM model involved. Never add `Signed-off-by:` or `Co-authored-by:` trailers.
 
 ### 3. Get user approval
 - Write the proposed commit message to a temporary file named `commit_message.txt`.
