@@ -226,12 +226,13 @@ part of this step: use `/git_commit` or the `git-commit` skill first.
 
 The command follows a three-step process:
 
-1. **Check** -- requires a clean working tree and a non-default branch; if
-   there are uncommitted changes it points the developer back to `/git_commit`.
+1. **Check** -- requires a non-default branch with at least one commit beyond
+   `master`; the working tree is not inspected.
 2. **Push** -- pushes the branch to the remote with `--set-upstream`.
-3. **Create PR** -- reads `.github/PULL_REQUEST_TEMPLATE.md`, merges the latest
-   commit body into the template, asks for a ticket reference, and creates the
-   PR via `gh pr create --repo os-autoinst/os-autoinst-distri-opensuse`.
+3. **Create PR** -- reads every commit on the branch, summarizes them into the
+   PR title and body, merges the summary into
+   `.github/PULL_REQUEST_TEMPLATE.md`, asks for a ticket reference, and creates
+   the PR via `gh pr create --repo os-autoinst/os-autoinst-distri-opensuse`.
 
 ### Practical situations
 
