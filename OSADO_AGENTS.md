@@ -91,10 +91,12 @@ export PERL5LIB=".:lib:os-autoinst:os-autoinst/lib:$PERL5LIB"
 *   Use `my ($self) = @_;` for method parameter parsing.
 
 ### Commit Messages
-*   Subject line < 72 chars, starts with Capital letter, NO trailing dot.
+*   Subject MUST start with a `<scope>:` prefix naming the affected area (kernel style), e.g. `lib/utils: Fix deep issue in a library`.
+*   Subject line <= 72 chars including the scope, NO trailing dot.
 *   Empty line between subject and body.
-*   Include "why" in the body, not just "what".
-*   **Do NOT use conventional commit format** (e.g., `feat(scope):`). Just use a descriptive subject.
+*   Explain "why" the change is needed, then "what" it does.
+*   **Do NOT use conventional commit types** (e.g., `feat(scope):` or `(feat)`); the scope names the affected area, not a commit type.
+*   Add one `Assisted-by: <model>` trailer per LLM model involved; never add `Signed-off-by:` or `Co-authored-by:`.
 
 ## 3. Workflow for Agents
 1.  **Understand:** Read related code in `lib/` or `tests/`. Search for existing patterns using `grep`.
@@ -105,12 +107,25 @@ export PERL5LIB=".:lib:os-autoinst:os-autoinst/lib:$PERL5LIB"
     *   If editing a library with unit tests, run the specific test with `prove`.
     *   If no unit tests exist, consider adding one in `t/`.
 
-## 4. Pull Request Workflow
-When creating a PR, follow these steps:
-1.  **Inspect Changes:** `git diff --staged`
-2.  **Commit:**
-    *   Message must NOT follow conventional commit format.
-    *   Subject: Capitalized, no trailing dot, < 72 chars.
-    *   Body: Explain "what" and "why".
-    *   Get user approval for the message.
-3.  **Push:** `git push --set-upstream origin <branch>`
+## 4. Commit and Pull Request Workflow
+
+### Commit
+Use the `git-commit` skill (or `/git_commit` in Gemini CLI) to inspect the
+staged changes and write the commit message:
+*   Message must NOT follow conventional commit format.
+*   Subject: `<scope>: <description>`, no trailing dot, <= 72 chars.
+*   Body: Explain "why" and then "what".
+*   Add one `Assisted-by: <model>` trailer per LLM model involved; no
+    `Signed-off-by:` or `Co-authored-by:` trailers.
+*   Keep commits atomic; do not bundle unrelated changes.
+*   Get user approval for the message.
+
+### Create the pull request
+Use the `github-pr-create` skill (or `/github_pr_create` in Gemini CLI), which:
+1.  Requires a non-default branch with at least one commit beyond `master`.
+2.  Pushes with `git push --set-upstream origin <branch>`.
+3.  Reads every commit on the branch and `.github/PULL_REQUEST_TEMPLATE.md`,
+    summarizes the commits into the PR title and body, asks for a ticket
+    reference, and creates the PR against the upstream repository. Verification
+    run results are added later to the description or a dedicated comment;
+    planning and running VRs is the `vr-planner` skill's job.

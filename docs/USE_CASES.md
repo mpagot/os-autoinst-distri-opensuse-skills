@@ -26,7 +26,8 @@ For a quick visual overview, see the
 | "Add a Perldoc header to this test module" | `test-catalog` |
 | "Generate a unit test for this new function" | `unit-test-wizard` (generate) |
 | "Review my test file against best practices" | `unit-test-wizard` (review) |
-| "Commit my staged changes and open a PR" | `/github_pr_create` |
+| "Commit my staged changes" | `/git_commit` |
+| "Push my branch and open a PR" | `/github_pr_create` |
 
 ## 1. Planning Verification Runs -- `vr-planner`
 
@@ -216,38 +217,39 @@ runs the `audit.sh` script plus standard project checks (`tools/check_metadata`,
 | `SETTINGS` | All openQA variables with descriptions and defaults |
 | `MAINTAINER` | Auto-detected from file/directory or provided by user |
 
-## 5. Creating Pull Requests -- `/github_pr_create`
+## 5. Pushing and Creating Pull Requests -- `/github_pr_create`
 
-The `/github_pr_create` custom command (Gemini CLI only) orchestrates the
-complete PR creation workflow from staged `git` changes to an open pull request
-on `os-autoinst/os-autoinst-distri-opensuse`.
+The `/github_pr_create` custom command (Gemini CLI only) and the
+`github-pr-create` skill push an already committed branch and open a pull
+request on `os-autoinst/os-autoinst-distri-opensuse`. Commit authoring is not
+part of this step: use `/git_commit` or the `git-commit` skill first.
 
-The command follows a six-step process:
+The command follows a three-step process:
 
-1. **Inspect** -- runs `git diff --staged` and analyses the changes.
-2. **Propose** -- drafts a commit message following OSADO conventions (no
-   conventional-commit format, body explains "what" and "why").
-3. **Approve** -- writes the message to a temp file for the developer to review
-   and edit before proceeding.
-4. **Commit** -- commits with the approved message.
-5. **Push** -- pushes the branch to the remote with `--set-upstream`.
-6. **Create PR** -- reads `.github/PULL_REQUEST_TEMPLATE.md`, merges the commit
-   body into the template, asks for a ticket reference, and creates the PR via
-   `gh pr create --repo os-autoinst/os-autoinst-distri-opensuse`.
+1. **Check** -- requires a clean working tree and a non-default branch; if
+   there are uncommitted changes it points the developer back to `/git_commit`.
+2. **Push** -- pushes the branch to the remote with `--set-upstream`.
+3. **Create PR** -- reads `.github/PULL_REQUEST_TEMPLATE.md`, merges the latest
+   commit body into the template, asks for a ticket reference, and creates the
+   PR via `gh pr create --repo os-autoinst/os-autoinst-distri-opensuse`.
 
 ### Practical situations
 
-- **End-to-end PR creation from staged changes:** Instead of manually writing
-  commit messages, filling PR templates, and running multiple `git` and `gh`
-  commands, the developer stages files and runs a single command.
+- **One-step PR from a committed branch:** After committing with
+  `/git_commit`, the developer runs a single command to push and open a PR,
+  instead of filling the template and running `git push` and `gh pr create`
+  by hand.
 
 - **Consistent PR formatting:** The command ensures every PR follows the
-  repository template, includes a ticket reference, and has a commit message
-  that meets OSADO style guidelines.
+  repository template, including a ticket reference.
 
 - **Reduced context switching:** The developer stays in the terminal and
-  interacts with the AI to finalize the commit message and PR description,
-  without switching between editor, terminal, and the GitHub web UI.
+  interacts with the AI to finalize the PR description, without switching to
+  the GitHub web UI.
+
+- **Verification runs are independent:** A pushed branch can be verified
+  without a PR. Depending on the order the user prefers, VR results are added
+  later to the PR description or as a dedicated comment (see `vr-planner`).
 
 ## 6. Generating Unit Tests -- `unit-test-wizard` (generate mode)
 
@@ -375,6 +377,9 @@ cycle:
       │
       ▼
   document module ────────── test-catalog
+      │
+      ▼
+  commit ─────────────────── /git_commit
       │
       ▼
   create PR ──────────────── /github_pr_create
